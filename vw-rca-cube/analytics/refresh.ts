@@ -12,7 +12,6 @@ import {
   baselineWindow,
   bucketing,
   computeP75Factors,
-  dayCountsOf,
   diffDays,
   dow,
   eachDay,
@@ -473,7 +472,6 @@ export const refreshData = internalAction({
         revenue: num(r, "rev"),
       }));
 
-      const baseDays = eachDay(baselineStart, baselineEnd);
       // METRIC_DEFINITIONS.md A4–A5: weekday holidays are left out of the baseline window and outlier days are capped at
       // 2x their weekday's median (from company revenue). Every baseline sum below is weighted by bw(date).
       const baseDayInfo = baselineDays(new Map(daily.map(d => [d.date, d.revenue] as const)), baselineStart, baselineEnd);
@@ -2559,7 +2557,6 @@ export const refreshSnapshot = internalAction({
         revenue: num(r, "rev"),
       }));
 
-      const baseDays = eachDay(baselineStart, baselineEnd);
       // METRIC_DEFINITIONS.md A4–A5: weekday holidays are left out of the baseline window and outlier days are capped at
       // 2x their weekday's median (from company revenue). Every baseline sum below is weighted by bw(date).
       const baseDayInfo = baselineDays(new Map(daily.map(d => [d.date, d.revenue] as const)), baselineStart, baselineEnd);
