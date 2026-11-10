@@ -73,7 +73,9 @@ start)
 </dict></plist>
 EOF
   launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
-  launchctl bootstrap "$DOMAIN" "$PLIST"
+  # bootout returns before the old process is gone; bootstrapping too early fails with "5: Input/output error".
+  for _ in $(seq 1 20); do launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1 || break; sleep 0.5; done
+  launchctl bootstrap "$DOMAIN" "$PLIST" 2>/dev/null || { sleep 2; launchctl bootstrap "$DOMAIN" "$PLIST"; }
   echo "==> Started. Waiting for the public address..."
   for _ in $(seq 1 30); do
     URL="$(grep -o 'tunnel up: https://[a-z0-9-]*\.trycloudflare\.com' "$LOG" 2>/dev/null | tail -1 | cut -d' ' -f3)"
