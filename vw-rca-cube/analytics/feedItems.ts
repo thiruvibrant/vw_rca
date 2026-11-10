@@ -282,8 +282,9 @@ const driverText = (d: Driver) =>
   `${d.label} ${d.gap >= 0 ? "+" : "−"}${Math.round(Math.abs(d.gap)).toLocaleString("en-US")} orders (${pctText(d.pct4)}, ${d.tag})`;
 type Read = Pace & { since: string | null };
 const readText = (name: string, m: Read) =>
-  `${name}: ${m.light}, ${pctText(m.size.pct)} vs usual over 4 weeks (normal range ±${(m.size.range * 100).toFixed(1)}%), ` +
-  `${m.streak.weeks}${m.streak.capped ? "+" : ""} weeks in a row ${m.side < 0 ? "below" : "above"}, ${m.way}${m.since ? `, off usual since ${m.since}` : ""}`;
+  `${name}: ${pctText(m.size.pct)} vs normal over the last 4 weeks (normal range ±${(m.size.range * 100).toFixed(1)}%), ` +
+  `${m.side < 0 ? "below" : "above"} normal ${m.streak.weeks}${m.streak.capped ? "+" : ""} weeks in a row${m.since ? ` (since ${m.since})` : ""}, ` +
+  `${m.way === "steady" ? "holding steady" : m.way === "improving" ? "getting better" : "getting worse"}`;
 
 /** The momentum tiles as an alert-rail card (METRIC_DEFINITIONS.md §8). Null when revenue and orders are both green. */
 export function momentumFeedItem(m: {
@@ -303,7 +304,7 @@ export function momentumFeedItem(m: {
     `Order value: $${Math.round(m.orderValue.now)} per order, ${pctText(m.orderValue.yoy)} vs last year`,
     ...(m.drivers.states.length ? [`States (orders): ${m.drivers.states.map(driverText).join(", ")}`] : []),
     ...(m.drivers.reps.length ? [`Reps (orders): ${m.drivers.reps.map(driverText).join(", ")}`] : []),
-    `Weeks to ${m.revenue.weekEnd}; usual pace = the half-year before, season and holidays taken out`,
+    `Weeks to ${m.revenue.weekEnd}; normal = the usual level for this time of year, from the last 6 months with seasonal and holiday effects taken out`,
   ].join(" | ");
   return { id: "momentum", tag: "Momentum", tone, q: "Is the business speeding up or slowing down?", a: m.summary, detail };
 }

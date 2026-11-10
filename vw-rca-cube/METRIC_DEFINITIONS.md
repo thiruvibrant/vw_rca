@@ -146,14 +146,17 @@ Because shares come from the best window, a rep whose book has shrunk since Feb�
    - Option: add these days to `holidays.csv` with their measured factors. This moves about $0.5M of goal from late December to the rest of the year, in both the emails and the dashboard.
 
 ## 8. Momentum: is the business speeding up or slowing down?
-These are the three tiles at the top of the Overview: **Revenue**, **Orders (volume)** and **Average order value**. Above them is one sentence on whether volume or order value explains the revenue change. When revenue or orders is not Normal, the alert rail gets a card too.
+These are the two tiles at the top of the Overview, **Revenue** and **Orders**, written for sales and executives.
+- Above them is one or two sentences: where revenue and orders stand against normal, which one explains the other, and whether higher prices are masking fewer orders.
+- Below them are the states and reps with the biggest change in orders.
+- When revenue or orders is not Normal, the alert rail gets a card too.
 
 The method is plain statistics: classical seasonal adjustment plus control-chart rules. Code: `analytics/momentumModel.ts`. Tests and simulation: `scripts/momentum.test.ts`.
 
 **Why orders get their own tile.** A price change moves revenue but not order volume.
 - After the February 2026 price increase, order value ran 15–18% above last year. Over the same months orders fell every month vs last year, reaching −18% over the 4 weeks to Nov 8.
 - Revenue alone hid this for months.
-- **Revenue vs last year is not shown until Feb 2027**, because the price increase inflates it. Orders vs last year are shown, since price doesn't affect them.
+- **Revenue vs last year is not shown**, because the price increase inflates it until Feb 2027.
 
 **Usual pace.** Each day's expected value is the seasonal strength × the usual level. This is computed separately for revenue and for orders.
 - **Seasonal strength** = last year's normal level for that day (the A10 rule, smoothed to 12 days within ±6 weeks) × this year's holiday factor ÷ last year's trend (the 364-day average centred on that day).
@@ -170,13 +173,15 @@ The method is plain statistics: classical seasonal adjustment plus control-chart
 2. **How long?** Complete weeks in a row on the same side of usual, within the last 16. "Off usual since" is the first week of the current run of non-Normal weeks, from the week-by-week history.
 3. **Which way?** The last 4 weeks vs the 4 before. Steady when the difference is within one band; otherwise improving or worsening.
 
+On the tiles, "usual" reads as **"normal for this time of year"**. Which way reads **Getting better**, **Getting worse** or **Holding steady**. The small row shows last week, 4 weeks (highlighted, the same as the big number), 8 weeks and 16 weeks.
+
 **Light:**
-- **Falling** (red) or **Rising** (solid green): outside the range **and** 5 or more weeks in a row.
+- **Dropping** (red) or **Growing** (green): outside the range **and** 5 or more weeks in a row.
 - **Watch** (amber): outside the range, or 6 or more weeks in a row inside it (a slow drift).
 - **Normal:** neither.
 - From Dec 20 to Jan 3 the light can be Watch at most, because business runs at 40–80% of normal in that stretch (decision 4).
 
-**Average order value** = revenue ÷ orders over the last 4 weeks, shown against last year and against the 12 weeks before. It is labelled "price & mix" and has no light of its own.
+**Average order value** (revenue ÷ orders) has no tile. It is used only in the sentence on top ("higher prices are covering part of the drop" when it is more than 3% above last year).
 
 **Drivers.** The 3 states and 3 reps with the largest change in **orders** over the last 4 weeks vs their usual.
 - An entity's usual = its orders on the same days last year × the company's usual-to-last-year ratio, so the gaps add up to the company's gap.
@@ -190,7 +195,7 @@ The method is plain statistics: classical seasonal adjustment plus control-chart
 **Validation (2026-11-10):**
 - **Simulation, 150 runs each:**
 
-  | Case | Falling or Rising |
+  | Case | Dropping or Growing |
   |---|---|
   | Steady business (false alarms) | 3% |
   | One very bad day | 2% |
@@ -200,8 +205,8 @@ The method is plain statistics: classical seasonal adjustment plus control-chart
   | Dip in weeks 5–8 that recovered | 3% |
 
 - **Real data:**
-  - Revenue went Falling or Rising around the late-2025 surge, the February 2026 price step and from Sep 2026.
-  - Orders have been off usual since Feb 16 and Falling since March.
+  - Revenue went Dropping or Growing around the late-2025 surge, the February 2026 price step and from Sep 2026.
+  - Orders have been below normal since Feb 16 and Dropping since March.
   - On Nov 8, revenue was −7.9% (8 weeks) and orders −12.5% (16+ weeks), with order value at $591, +14% vs last year.
 
 **Where it shows.**

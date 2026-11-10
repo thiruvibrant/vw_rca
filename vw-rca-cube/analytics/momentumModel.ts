@@ -321,32 +321,29 @@ export function orderValue(rev: Pace, ord: Pace) {
   };
 }
 
-const lightWord = (x: Pace) => (x.side < 0 ? "below" : "above");
-const weeksText = (x: Pace) => `${x.streak.weeks}${x.streak.capped ? "+" : ""} week${x.streak.weeks === 1 ? "" : "s"}`;
+const word = (x: Pace) => (x.side < 0 ? "below" : "above");
+const amount = (x: Pace) => `${Math.abs(x.size.pct * 100).toFixed(1)}%`;
+const month = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString("en-US", { month: "long", timeZone: "UTC" });
 
-/** One plain sentence for the C-suite: what revenue is doing, and whether volume or order value explains it. */
+/**
+ * Two or three short sentences in sales and executive language: where revenue and orders stand against normal for this
+ * time of year, which one explains the other, and whether price is masking volume.
+ */
 export function summaryOf(rev: Pace, ord: Pace, aov: ReturnType<typeof orderValue>, ordSince: string | null): string {
-  const r = rev.size.pct;
-  const o = ord.size.pct;
-  const revPart =
-    rev.light === "green"
-      ? `Revenue is within its usual range (${pctText(r)} over the last 4 weeks).`
-      : `Revenue is ${pctText(Math.abs(r)).slice(1)} ${lightWord(rev)} its usual pace over the last 4 weeks, ${weeksText(rev)} in a row.`;
-  const ordPart =
-    ord.light === "green"
-      ? "Order volume is within its usual range"
-      : `Orders are ${pctText(Math.abs(o)).slice(1)} ${lightWord(ord)} usual${ordSince ? ` and have been since ${fmtDay(ordSince)}` : ""}`;
-  const aovPart = Math.abs(aov.yoy) >= 0.03 ? `; order value is ${pctText(aov.yoy, 0)} vs last year` : "";
-  // Which one explains revenue: the measure that moved further in revenue's direction.
-  const cause =
-    rev.light !== "green" && ord.light !== "green" && Math.sign(o) === Math.sign(r) && Math.abs(o) >= Math.abs(r)
-      ? " The cause is volume: "
-      : rev.light !== "green" && ord.light === "green"
-        ? " Volume is steady, so the change is in order value: "
-        : " ";
-  const tail = rev.side < 0 && aov.yoy > 0.03 && ord.side < 0 ? ", which is covering part of the gap." : ".";
-  const ordText = cause === " " ? ordPart : ordPart.charAt(0).toLowerCase() + ordPart.slice(1);
-  return `${revPart}${cause}${ordText}${aovPart}${tail}`.replace(/\s+/g, " ").trim();
+  const revOff = rev.light !== "green";
+  const ordOff = ord.light !== "green";
+  if (!revOff && !ordOff) return "Revenue and orders are at their normal level for this time of year.";
+  const since = ordSince ? `, and have been since ${month(ordSince)}` : "";
+  const revText = revOff ? `Revenue is ${amount(rev)} ${word(rev)} normal over the last 4 weeks.` : "Revenue is at its normal level.";
+  const ordText = ordOff ? `orders are ${amount(ord)} ${word(ord)} normal${since}.` : "orders are at their normal level.";
+  const priceUp = aov.yoy > 0.03;
+  if (revOff && ordOff && ord.side === rev.side && Math.abs(ord.size.pct) >= Math.abs(rev.size.pct)) {
+    const cover = rev.side < 0 && priceUp ? " Higher prices are covering part of the drop." : "";
+    return `${revText} The main cause is ${rev.side < 0 ? "fewer" : "more"} orders: ${ordText}${cover}`;
+  }
+  if (revOff && !ordOff) return `${revText} Orders are normal, so the change is in what customers spend per order.`;
+  if (!revOff && ordOff && ord.side < 0 && priceUp) return `${revText} But ${ordText} Higher prices are hiding the drop in orders.`;
+  return `${revText} ${ordText.charAt(0).toUpperCase()}${ordText.slice(1)}`;
 }
 
 export type DriverInput = { key: string; label: string; a4: number; l4: number; a16: number; l16: number };

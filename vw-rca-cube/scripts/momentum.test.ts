@@ -123,8 +123,9 @@ test("order value and the summary: volume down, price up", () => {
   assert.ok(v.change > 0.03, `aov change ${v.change}`);
   assert.equal(v.way, "up");
   const text = summaryOf(r, o, v, "2026-09-14");
-  assert.match(text, /The cause is volume/);
-  assert.match(text, /since Sep 14/);
+  assert.match(text, /The main cause is fewer orders/);
+  assert.match(text, /since September/);
+  assert.match(text, /Higher prices are covering part of the drop/);
 });
 
 test("drivers: gaps add up to the company gap, tagged ongoing vs new", () => {
