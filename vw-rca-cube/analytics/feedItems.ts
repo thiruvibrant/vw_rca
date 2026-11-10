@@ -3,7 +3,7 @@
  * same question reads the same wherever it appears. Pure functions: no database, no Convex imports.
  */
 import type { FeedItem } from "./feed";
-import type { Driver, Momentum } from "./momentumModel";
+import type { Driver, Pace } from "./momentumModel";
 
 export const MONEY = (n: number) => {
   const a = Math.abs(n);
@@ -79,8 +79,10 @@ export const INFERENCE_BY_TAG: Record<string, (tone: string) => string> = {
     "Bundle share moves together with AOV — track the two side by side rather than in isolation.",
   Momentum: tone =>
     tone === "good"
-      ? "Several independent checks agree the business is running above its usual pace once season and holidays are removed."
-      : "Several independent checks agree the business has moved off its usual pace once season and holidays are removed — this is a shift, not one bad day.",
+      ? "Revenue or orders have run above their usual pace for weeks and outside the normal range: a real shift, not one good week."
+      : tone === "alert"
+        ? "Revenue or orders have run below their usual pace for weeks and outside the normal range: a real shift, not one bad week. Orders show volume; revenue also moves with price."
+        : "Revenue or orders are off their usual pace, but not yet both large and lasting: watch the next weeks.",
 };
 // Cards whose wording is specific to the question, not the tag (the tag-level text for "Target list" describes the flagged-clinic list).
 const ITEM_TEXT: Record<string, { inference: string; action: string }> = {
@@ -114,7 +116,7 @@ export const ACTION_BY_TAG: Record<string, string> = {
   Geography: "Check state-specific factors (rep coverage, local competitor, seasonal effects) before treating this as company-wide.",
   Channel: "Loop in the channel owner if the movement doesn't self-correct within a week.",
   Mix: "Track alongside the AOV card; the two should move together.",
-  Momentum: "Start with the drivers listed: a 'new' driver is worth a call this week; a 'sustained' one needs a plan, not a call.",
+  Momentum: "Start with the drivers listed: a 'new' driver is worth a call this week; an 'ongoing' one needs a plan, not a call.",
 };
 /** Wording for the rep Business feed where the main feed's line is written for a manager (the main feed says "confirm with reps"). */
 export const REP_ACTION: Record<string, string> = {
@@ -276,18 +278,32 @@ export function gzLossItem(
 }
 
 const pctText = (x: number | null) => (x === null ? "n/a" : `${x >= 0 ? "+" : "−"}${Math.abs(x * 100).toFixed(1)}%`);
-const driverText = (d: Driver) => `${d.label} ${MONEY(d.gap)} (${pctText(d.pct4)}, ${d.tag})`;
+const driverText = (d: Driver) =>
+  `${d.label} ${d.gap >= 0 ? "+" : "−"}${Math.round(Math.abs(d.gap)).toLocaleString("en-US")} orders (${pctText(d.pct4)}, ${d.tag})`;
+type Read = Pace & { since: string | null };
+const readText = (name: string, m: Read) =>
+  `${name}: ${m.light}, ${pctText(m.size.pct)} vs usual over 4 weeks (normal range ±${(m.size.range * 100).toFixed(1)}%), ` +
+  `${m.streak.weeks}${m.streak.capped ? "+" : ""} weeks in a row ${m.side < 0 ? "below" : "above"}, ${m.way}${m.since ? `, off usual since ${m.since}` : ""}`;
 
-/** The momentum tile as an alert-rail card (METRIC_DEFINITIONS.md §8). Null when the read is Normal. */
-export function momentumFeedItem(m: Momentum & { drivers?: { states: Driver[]; reps: Driver[] } }): FeedItem | null {
-  if (m.status === "normal") return null;
-  const tone: FeedItem["tone"] = m.status === "alert" ? (m.direction > 0 ? "good" : "alert") : "watch";
-  const fired = m.votes.filter(v => v.vote !== 0);
+/** The momentum tiles as an alert-rail card (METRIC_DEFINITIONS.md §8). Null when revenue and orders are both green. */
+export function momentumFeedItem(m: {
+  summary: string;
+  revenue: Read;
+  orders: Read;
+  orderValue: { now: number; yoy: number };
+  drivers: { states: Driver[]; reps: Driver[] };
+}): FeedItem | null {
+  const reads = [m.revenue, m.orders];
+  if (reads.every(r => r.light === "green")) return null;
+  const worst = reads.find(r => r.light === "red") ?? reads.find(r => r.light === "amber")!;
+  const tone: FeedItem["tone"] = worst.light === "red" ? (worst.side > 0 ? "good" : "alert") : "watch";
   const detail = [
-    `${fired.length} of ${m.votes.length} checks agree: ${fired.map(v => `${v.label} (${v.detail})`).join("; ")}`,
-    ...(m.drivers?.states.length ? [`States: ${m.drivers.states.map(driverText).join(", ")}`] : []),
-    ...(m.drivers?.reps.length ? [`Reps: ${m.drivers.reps.map(driverText).join(", ")}`] : []),
-    `Weeks to ${m.weekEnd}; season-adjusted vs the half-year before`,
+    readText("Revenue", m.revenue),
+    readText("Orders", m.orders),
+    `Order value: $${Math.round(m.orderValue.now)} per order, ${pctText(m.orderValue.yoy)} vs last year`,
+    ...(m.drivers.states.length ? [`States (orders): ${m.drivers.states.map(driverText).join(", ")}`] : []),
+    ...(m.drivers.reps.length ? [`Reps (orders): ${m.drivers.reps.map(driverText).join(", ")}`] : []),
+    `Weeks to ${m.revenue.weekEnd}; usual pace = the half-year before, season and holidays taken out`,
   ].join(" | ");
-  return { id: "momentum", tag: "Momentum", tone, q: "Is the business speeding up or slowing down?", a: m.headline, detail };
+  return { id: "momentum", tag: "Momentum", tone, q: "Is the business speeding up or slowing down?", a: m.summary, detail };
 }
