@@ -118,6 +118,9 @@ export const write = internalMutation({
     genSeq: v.optional(v.number()),
     baseRevAll: v.optional(v.number()),
     baseOrdersAll: v.optional(v.number()),
+    /** Baseline day counts per weekday (Sun..Sat) and the window days whose weight is not 1 (METRIC_DEFINITIONS.md A4–A5). */
+    baselineCounts: v.optional(v.array(v.number())),
+    baselineWeights: v.optional(v.array(v.object({ d: v.string(), w: v.number() }))),
   },
   handler: async (ctx, args) => {
     const row = await ctx.db
@@ -158,6 +161,9 @@ export const writeSnapshot = internalMutation({
     genSeq: v.number(),
     baseRevAll: v.optional(v.number()),
     baseOrdersAll: v.optional(v.number()),
+    /** Baseline day counts per weekday (Sun..Sat) and the window days whose weight is not 1 (METRIC_DEFINITIONS.md A4–A5). */
+    baselineCounts: v.optional(v.array(v.number())),
+    baselineWeights: v.optional(v.array(v.object({ d: v.string(), w: v.number() }))),
   },
   handler: async (ctx, { key, ...args }) => {
     const row = await ctx.db
@@ -353,6 +359,9 @@ export const finishRepWindow = internalMutation({
     requestAt: v.optional(v.number()),
     baseRevAll: v.optional(v.number()),
     baseOrdersAll: v.optional(v.number()),
+    /** Baseline day counts per weekday (Sun..Sat) and the window days whose weight is not 1 (METRIC_DEFINITIONS.md A4–A5). */
+    baselineCounts: v.optional(v.array(v.number())),
+    baselineWeights: v.optional(v.array(v.object({ d: v.string(), w: v.number() }))),
   },
   handler: async (ctx, { key, reqStart, reqEnd, requestAt, ...args }): Promise<boolean> => {
     const r = await repRow(ctx, key);

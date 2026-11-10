@@ -1,0 +1,51 @@
+/**
+ * Holiday calendar (METRIC_DEFINITIONS.md, Appendix A1). Generated from analytics/holidays.csv, the one list the
+ * dashboard and the executive emails share; scripts/baseline-goal.test.ts fails if the two differ.
+ * To change it: edit holidays.csv, then run `node --import tsx scripts/gen-holidays.ts`.
+ */
+export const HOLIDAYS_CSV = `date,name,cls,factor
+2025-01-01,new_year,closed,0.16
+2025-01-02,day_after_new_year,partial,0.83
+2025-01-20,mlk,normal,1.0
+2025-02-17,presidents,normal,1.0
+2025-05-26,memorial,closed,0.16
+2025-06-19,juneteenth,normal,1.0
+2025-07-04,independence,closed,0.11
+2025-09-01,labor,closed,0.18
+2025-10-13,columbus,normal,1.0
+2025-11-11,veterans,normal,1.0
+2025-11-27,thanksgiving,closed,0.07
+2025-11-28,day_after_thanksgiving,partial,0.27
+2025-12-24,christmas_eve,closed,0.15
+2025-12-25,christmas,closed,0.03
+2025-12-26,day_after_christmas,partial,0.27
+2025-12-31,new_years_eve,partial,0.48
+2026-01-01,new_year,closed,0.16
+2026-01-02,day_after_new_year,partial,0.69
+2026-01-19,mlk,normal,1.0
+2026-02-16,presidents,normal,1.0
+2026-05-25,memorial,closed,0.16
+2026-06-19,juneteenth,normal,1.0
+2026-07-03,independence,partial,0.44
+2026-09-07,labor,closed,0.18
+2026-10-12,columbus,normal,1.0
+2026-11-11,veterans,normal,1.0
+2026-11-26,thanksgiving,closed,0.07
+2026-11-27,day_after_thanksgiving,partial,0.27
+2026-12-24,christmas_eve,closed,0.15
+2026-12-25,christmas,closed,0.03
+2026-12-31,new_years_eve,partial,0.48
+2027-01-01,new_year,closed,0.16
+2027-01-18,mlk,normal,1.0
+2027-02-15,presidents,normal,1.0
+2027-05-31,memorial,closed,0.16
+2027-06-18,juneteenth,normal,1.0
+2027-07-05,independence,closed,0.11
+2027-09-06,labor,closed,0.18
+2027-10-11,columbus,normal,1.0
+2027-11-11,veterans,normal,1.0
+2027-11-25,thanksgiving,closed,0.07
+2027-11-26,day_after_thanksgiving,partial,0.27
+2027-12-24,christmas,closed,0.05
+2027-12-31,new_years_eve,partial,0.48
+`;

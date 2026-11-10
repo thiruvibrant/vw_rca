@@ -4,6 +4,9 @@
  *  Baseline  mean run rate over the baseline window, by weekday. Means add up, so a clinic's baseline summed over
  *            clinics, cohorts, reps, leads, states or the company is the same number, and a clinic with any
  *            baseline orders has a baseline above zero.
+ *  2026-11-09: the goal now follows METRIC_DEFINITIONS.md (Appendix A): the existing-business goal is the target minus
+ *            the new-business goal, spread by last year's normal daily level x this year's holiday factors (goalCurve.ts),
+ *            with no floor at the baseline. Rows built that way carry curveShare; older rows use the rule below.
  *  Goal      the Settings annual target spread over the year by baseline weekday weights (changed 2026-10-16;
  *            it was the company rolling P75, now kept as a benchmark, p75Revenue). Every entity's goal is its
  *            baseline x one factor per period, goalFactor = goal / baseline, so goals add up over entities AND
@@ -49,6 +52,9 @@ type GoalRow = {
   /** Last year's revenue from clinics that were new that year: the default new-business goal. */
   newDefaultSlice?: number;
   baseRevenue?: number;
+  /** METRIC_DEFINITIONS.md A11 rows: the period's share of the year's goal weights and the baseline of out-of-year days. */
+  curveShare?: number;
+  outBase?: number;
 };
 
 /** Share of the target given to new business when there is neither a Settings number nor a prior year to anchor on. */
@@ -64,6 +70,12 @@ export function sliceOf(row: GoalRow | null | undefined, st: GoalSettings | unde
 
 /** Multiplier taking the existing-business goal stored at refresh to the one for the current Settings (target and new-business goal). */
 export function targetScaleOf(row: GoalRow | null | undefined, st: GoalSettings | undefined): number {
+  if (row?.curveShare !== undefined && row.target && st?.target) {
+    // Goal curve (METRIC_DEFINITIONS.md A11): existing goal = (target - new-business goal) x curveShare + outBase.
+    const g = (t: number, slice: number) => (t - slice) * row.curveShare! + (row.outBase ?? 0);
+    const then = g(row.target, row.newSlice ?? 0);
+    return then > 0 ? g(st.target, sliceOf(row, st)) / then : 1;
+  }
   if (!row || !row.target || !row.yearBaseRevenue || row.tShare === undefined || !st?.target) return 1;
   // The existing-business goal is never below baseline: the factor is floored at 1 (2026-10-18).
   const m = (t: number, slice: number) => row.tShare! * Math.max(1, (t - slice) / row.yearBaseRevenue!) + (1 - row.tShare!);

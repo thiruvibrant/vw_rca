@@ -30,6 +30,7 @@ import { buyingRhythm } from "./flags";
 import { classifyClinic, type Lifecycle } from "./lifecycleRules";
 import { gatedAction } from "./gated";
 import { topDownAllocate } from "./topDown";
+import { baselineDays, bestWindow, dayWeight, goalWeights, lookbackOf } from "./goalCurve";
 import { newClinicFunnelGroups } from "./newClinicFunnel";
 import { eq, O, ordersRows, rows as cubeRows } from "./cube";
 import { dateOf, familyOf, num, splitFamilies, TABLE } from "./powerbi";
@@ -82,11 +83,11 @@ async function runAll(limit: number, tasks: Array<() => Promise<unknown>>) {
 }
 
 /**
- * Baseline window (Shyam, 2026-10-17): by default the 91 days before the analysis window; "best" picks the 91-day
- * stretch of data with the highest revenue that ends before the window starts; "custom" uses the dates saved in
- * Settings. Both fall back to the default when they cannot be honoured (too little data, overlap with the window).
+ * Baseline window (METRIC_DEFINITIONS.md A2–A3, 2026-11-09): by default ("best") the 91 consecutive days with the highest
+ * company revenue in the 12 months before the quarter that holds the data-through date. It is re-chosen each quarter and
+ * may overlap the analysis window. "custom" uses the dates saved in Settings; "trailing" and the yoy / prior modes keep
+ * their fixed windows. Falls back to the trailing window when there is too little data.
  */
-const BEST_FROM = "2025-01-01";
 export async function resolveBaseline(
   cfg: { autoBaseline?: boolean; baselineSource?: string; baselineStart: string; baselineEnd: string },
   mode: BaselineMode,
@@ -99,29 +100,14 @@ export async function resolveBaseline(
   if (source === "custom" && cfg.baselineStart && cfg.baselineEnd && cfg.baselineEnd < currentStart)
     return { start: cfg.baselineStart, end: cfg.baselineEnd };
   if (source === "best") {
-    const last = addDays(currentStart, -1);
-    const rows = await ordersRows({ day: true, start: BEST_FROM, end: last, m: { rev: "revenue" } });
-    const rev = new Map(rows.map(r => [dateOf(r, "order_date"), num(r, "rev")]));
-    const N = 91;
-    if (diffDays(BEST_FROM, last) + 1 >= N) {
-      let sum = 0, best = -1, bestEnd = last;
-      const win: number[] = [];
-      for (let d = BEST_FROM; d <= last; d = addDays(d, 1)) {
-        const x = rev.get(d) ?? 0;
-        win.push(x); sum += x;
-        if (win.length > N) sum -= win[win.length - N - 1];
-        if (win.length >= N && sum > best) { best = sum; bestEnd = d; }
-      }
-      if (best > 0) return { start: addDays(bestEnd, -(N - 1)), end: bestEnd };
-    }
+    const lb = lookbackOf(currentEnd);
+    const rows = await ordersRows({ day: true, start: lb.start, end: lb.end, m: { rev: "revenue" } });
+    const best = bestWindow(new Map(rows.map(r => [dateOf(r, "order_date"), num(r, "rev")])), currentEnd);
+    if (best) return { start: best.start, end: best.end };
   }
   return trailing;
 }
 
-/**
- * Distinct order dates per clinic up to `cutoff` (no future leak), pulled in
- * month slices from the first order date to keep each DAX payload small.
- */
 export async function fetchOrderDateHistory(
   cutoff: string,
 ): Promise<Map<string, string[]>> {
@@ -264,6 +250,9 @@ export const refreshData = internalAction({
       const priorStart = addDays(yearStart, -364).slice(0, 4) + "-06-01";
       const priorEnd = `${Number(currentEnd.slice(0, 4)) - 1}-12-31`;
       const pPrior = ordersRows({ day: true, start: priorStart, end: priorEnd, m: { rev: "revenue", ord: "orders" } });
+      // Goal day weights (METRIC_DEFINITIONS.md A10) need last year's daily revenue, a month either side of the year.
+      const goalYear = Number(currentEnd.slice(0, 4));
+      const pGoalLy = ordersRows({ day: true, start: `${goalYear - 2}-12-01`, end: `${goalYear}-01-31`, m: { rev: "revenue" } });
       const pYtdLead = ordersRows({ by: ["team_lead"], start: yearStart, end: currentEnd, m: { rev: "revenue", ord: "orders" } });
       const pFwdLead = ordersRows({ by: ["team_lead"], start: addDays(currentEnd, -90), end: currentEnd, m: { rev: "revenue", ord: "orders" } });
       // Same year-to-date and trailing-13-week actuals, at clinic grain, so
@@ -485,14 +474,19 @@ export const refreshData = internalAction({
       }));
 
       const baseDays = eachDay(baselineStart, baselineEnd);
-      const baseCounts = dayCountsOf(baseDays);
+      // METRIC_DEFINITIONS.md A4–A5: weekday holidays are left out of the baseline window and outlier days are capped at
+      // 2x their weekday's median (from company revenue). Every baseline sum below is weighted by bw(date).
+      const baseDayInfo = baselineDays(new Map(daily.map(d => [d.date, d.revenue] as const)), baselineStart, baselineEnd);
+      const baseCounts = baseDayInfo.counts;
+      const bw = (d: string) => dayWeight(baseDayInfo, d);
 
       const stateBaseRows = await pStateBase;
       const stateTotals = new Map<string, number[]>();
       for (const r of stateBaseRows) {
         const st = String(r[`${TABLE}[state]`] ?? "(blank)");
         const arr = stateTotals.get(st) ?? [0, 0, 0, 0, 0, 0, 0];
-        arr[dow(dateOf(r, "order_date"))] += num(r, "rev");
+        const sd = dateOf(r, "order_date");
+        arr[dow(sd)] += num(r, "rev") * bw(sd);
         stateTotals.set(st, arr);
       }
 
@@ -522,8 +516,8 @@ export const refreshData = internalAction({
             rev: [0, 0, 0, 0, 0, 0, 0],
             ord: [0, 0, 0, 0, 0, 0, 0],
           };
-          b.rev[dow(date)] += num(r, "rev");
-          b.ord[dow(date)] += num(r, "ord");
+          b.rev[dow(date)] += num(r, "rev") * bw(date);
+          b.ord[dow(date)] += num(r, "ord") * bw(date);
           channelBase.set(channel, b);
         }
       }
@@ -588,14 +582,15 @@ export const refreshData = internalAction({
           const rev = num(r, "rev");
           const ord = num(r, "ord");
           const pat = num(r, "pat");
-          b.rev[i] += rev;
-          b.ord[i] += ord;
-          b.bRev[i] += num(r, "brev");
-          b.bOrd[i] += num(r, "bord");
-          b.pat[i] += pat;
-          b.total += rev;
-          b.orders += ord;
-          b.patients += pat;
+          const w = bw(d);
+          b.rev[i] += rev * w;
+          b.ord[i] += ord * w;
+          b.bRev[i] += num(r, "brev") * w;
+          b.bOrd[i] += num(r, "bord") * w;
+          b.pat[i] += pat * w;
+          b.total += rev * w;
+          b.orders += ord * w;
+          b.patients += pat * w;
           baseByClinic.set(id, b);
           clinicBaseDays.push({
             clinic: id,
@@ -715,7 +710,7 @@ export const refreshData = internalAction({
           const pr = priorOf.get(id)!;
           const rRev = pr.rev / 365, rOrd = pr.ord / 365;
           const flat = (r: number) => baseCounts.map(c => r * c);
-          const nDays = baseDays.length;
+          const nDays = baseCounts.reduce((t, c) => t + c, 0);
           const b1: ClinicBase = {
             rev: flat(rRev), ord: flat(rOrd), bRev: zero(), bOrd: zero(), pat: zero(),
             total: rRev * nDays, orders: rOrd * nDays, patients: 0,
@@ -851,10 +846,11 @@ export const refreshData = internalAction({
         for (const r of rows) {
           const fams = splitFamilies(familyOf(r));
           const i = dow(dateOf(r, "order_date"));
-          const rev = num(r, "rev") / fams.length;
-          const ord = num(r, "ord");
-          const bRev = num(r, "brev") / fams.length;
-          const bOrd = num(r, "bord");
+          const w = bw(dateOf(r, "order_date"));
+          const rev = (num(r, "rev") / fams.length) * w;
+          const ord = num(r, "ord") * w;
+          const bRev = (num(r, "brev") / fams.length) * w;
+          const bOrd = num(r, "bord") * w;
           const sales = salesLabelOf(r);
           for (const f of fams) {
             for (const [scope, sRev, sOrd] of [
@@ -908,10 +904,11 @@ export const refreshData = internalAction({
           for (const r of nrows) {
             const fams = splitFamilies(familyOf(r));
             const i = dow(dateOf(r, "order_date"));
-            const rev = num(r, "rev") / fams.length;
-            const ord = num(r, "ord");
-            const bRev = num(r, "brev") / fams.length;
-            const bOrd = num(r, "bord");
+            const w = bw(dateOf(r, "order_date"));
+            const rev = (num(r, "rev") / fams.length) * w;
+            const ord = num(r, "ord") * w;
+            const bRev = (num(r, "brev") / fams.length) * w;
+            const bOrd = num(r, "bord") * w;
             const sales = salesLabelOf(r);
             for (const f of fams) {
               for (const [scope, sRev, sOrd] of [
@@ -1661,7 +1658,7 @@ export const refreshData = internalAction({
         Array<{ date: string; revenue: number }>
       >();
       const seenDay = new Set<string>();
-      for (const row of [...clinicBaseDays, ...clinicDays]) {
+      for (const row of [...clinicBaseDays.filter(r => r.date < currentStart), ...clinicDays]) {
         if (row.orders <= 0) continue;
         const k = `${row.clinic}|${row.date}`;
         if (seenDay.has(k)) continue;
@@ -1894,7 +1891,8 @@ export const refreshData = internalAction({
         om.set(date, (om.get(date) ?? 0) + ord);
         clinicDateOrd.set(clinic, om);
       };
-      for (const r of clinicBaseDays)
+      // The baseline window can overlap the analysis window: its days from currentStart on are already in clinicDays.
+      for (const r of clinicBaseDays.filter(x => x.date < currentStart))
         addClinicDay(r.clinic, r.date, r.revenue, r.orders);
       for (const r of clinicDays)
         addClinicDay(r.clinic, r.date, r.revenue, r.orders);
@@ -1916,7 +1914,7 @@ export const refreshData = internalAction({
         m.set(date, (m.get(date) ?? 0) + v2);
         store.set(key, m);
       };
-      const allClinicDays = [...clinicBaseDays, ...clinicDays];
+      const allClinicDays = [...clinicBaseDays.filter(r => r.date < currentStart), ...clinicDays];
       for (const r of allClinicDays) {
         const idty = identity.get(r.clinic);
         const lead = idty?.teamLead ?? "—";
@@ -1985,7 +1983,7 @@ export const refreshData = internalAction({
       }
       // Top-down allocation [Shyam, 2026-10-12]: overall → geo → rep×geo;
       // reps/leads are sums of their cells. Clinic P75 stays unscaled.
-      const td = topDownAllocate({ defs, planOf, days: allClinicDays, identity, rates: clinicMeta.map(m => ({ clinic: m.clinic, rev: m.rev, ord: m.ord })), companyDaily: daily, target: { annual: cfg.annualTarget ?? 130_000_000, year: Number(currentEnd.slice(0, 4)), newSlice: (cfg as { newBusinessGoal?: number }).newBusinessGoal ?? (priorNewTotal || 0.05 * (cfg.annualTarget ?? 130_000_000)), newPhasing, newDefaultSlice: priorNewTotal || undefined } });
+      const td = topDownAllocate({ defs, planOf, days: allClinicDays, identity, rates: clinicMeta.map(m => ({ clinic: m.clinic, rev: m.rev, ord: m.ord })), companyDaily: daily, target: { annual: cfg.annualTarget ?? 130_000_000, year: Number(currentEnd.slice(0, 4)), newSlice: (cfg as { newBusinessGoal?: number }).newBusinessGoal ?? (priorNewTotal || 0.05 * (cfg.annualTarget ?? 130_000_000)), newPhasing, newDefaultSlice: priorNewTotal || undefined, weights: goalWeights(new Map((await pGoalLy).map(r => [dateOf(r, "order_date"), num(r, "rev")] as const)), goalYear) } });
       const leadPeriodBaseline = td.lead;
       const salesPeriodBaseline = td.sales;
       // Clinic expectations are no longer scaled to reps: every clinic's goal is its baseline x the period goal factor (baseline.ts).
@@ -2161,7 +2159,7 @@ export const refreshData = internalAction({
         gen,
         genSeq: gen,
         baseRevAll: clinicMeta.reduce((t, m) => t + m.baseRev, 0),
-        baseOrdersAll: clinicMeta.reduce((t, m) => t + m.baseOrders, 0),
+        baseOrdersAll: clinicMeta.reduce((t, m) => t + m.baseOrders, 0), baselineCounts: baseDayInfo.counts, baselineWeights: Object.entries(baseDayInfo.weight).filter(([, w]) => w !== 1).map(([d, w]) => ({ d, w })),
       });
       // Stale drill cache keys are gen-agnostic, so clear that small table now.
       for (let i = 0; i < 20; i++) {
@@ -2339,6 +2337,9 @@ export const refreshSnapshot = internalAction({
       const priorStart = addDays(yearStart, -364).slice(0, 4) + "-06-01";
       const priorEnd = `${Number(currentEnd.slice(0, 4)) - 1}-12-31`;
       const pPrior = ordersRows({ day: true, start: priorStart, end: priorEnd, m: { rev: "revenue", ord: "orders" } });
+      // Goal day weights (METRIC_DEFINITIONS.md A10) need last year's daily revenue, a month either side of the year.
+      const goalYear = Number(currentEnd.slice(0, 4));
+      const pGoalLy = ordersRows({ day: true, start: `${goalYear - 2}-12-01`, end: `${goalYear}-01-31`, m: { rev: "revenue" } });
       const pYtdLead = ordersRows({ by: ["team_lead"], start: yearStart, end: currentEnd, m: { rev: "revenue", ord: "orders" } });
       const pFwdLead = ordersRows({ by: ["team_lead"], start: addDays(currentEnd, -90), end: currentEnd, m: { rev: "revenue", ord: "orders" } });
       // Same year-to-date and trailing-13-week actuals, at clinic grain, so
@@ -2559,14 +2560,19 @@ export const refreshSnapshot = internalAction({
       }));
 
       const baseDays = eachDay(baselineStart, baselineEnd);
-      const baseCounts = dayCountsOf(baseDays);
+      // METRIC_DEFINITIONS.md A4–A5: weekday holidays are left out of the baseline window and outlier days are capped at
+      // 2x their weekday's median (from company revenue). Every baseline sum below is weighted by bw(date).
+      const baseDayInfo = baselineDays(new Map(daily.map(d => [d.date, d.revenue] as const)), baselineStart, baselineEnd);
+      const baseCounts = baseDayInfo.counts;
+      const bw = (d: string) => dayWeight(baseDayInfo, d);
 
       const stateBaseRows = await pStateBase;
       const stateTotals = new Map<string, number[]>();
       for (const r of stateBaseRows) {
         const st = String(r[`${TABLE}[state]`] ?? "(blank)");
         const arr = stateTotals.get(st) ?? [0, 0, 0, 0, 0, 0, 0];
-        arr[dow(dateOf(r, "order_date"))] += num(r, "rev");
+        const sd = dateOf(r, "order_date");
+        arr[dow(sd)] += num(r, "rev") * bw(sd);
         stateTotals.set(st, arr);
       }
 
@@ -2596,8 +2602,8 @@ export const refreshSnapshot = internalAction({
             rev: [0, 0, 0, 0, 0, 0, 0],
             ord: [0, 0, 0, 0, 0, 0, 0],
           };
-          b.rev[dow(date)] += num(r, "rev");
-          b.ord[dow(date)] += num(r, "ord");
+          b.rev[dow(date)] += num(r, "rev") * bw(date);
+          b.ord[dow(date)] += num(r, "ord") * bw(date);
           channelBase.set(channel, b);
         }
       }
@@ -2653,14 +2659,15 @@ export const refreshSnapshot = internalAction({
           const rev = num(r, "rev");
           const ord = num(r, "ord");
           const pat = num(r, "pat");
-          b.rev[i] += rev;
-          b.ord[i] += ord;
-          b.bRev[i] += num(r, "brev");
-          b.bOrd[i] += num(r, "bord");
-          b.pat[i] += pat;
-          b.total += rev;
-          b.orders += ord;
-          b.patients += pat;
+          const w = bw(d);
+          b.rev[i] += rev * w;
+          b.ord[i] += ord * w;
+          b.bRev[i] += num(r, "brev") * w;
+          b.bOrd[i] += num(r, "bord") * w;
+          b.pat[i] += pat * w;
+          b.total += rev * w;
+          b.orders += ord * w;
+          b.patients += pat * w;
           baseByClinic.set(id, b);
           clinicBaseDays.push({
             clinic: id,
@@ -2775,7 +2782,7 @@ export const refreshSnapshot = internalAction({
           const pr = priorOf.get(id)!;
           const rRev = pr.rev / 365, rOrd = pr.ord / 365;
           const flat = (r: number) => baseCounts.map(c => r * c);
-          const nDays = baseDays.length;
+          const nDays = baseCounts.reduce((t, c) => t + c, 0);
           const b1: ClinicBase = {
             rev: flat(rRev), ord: flat(rOrd), bRev: zero(), bOrd: zero(), pat: zero(),
             total: rRev * nDays, orders: rOrd * nDays, patients: 0,
@@ -2902,10 +2909,11 @@ export const refreshSnapshot = internalAction({
         for (const r of rows) {
           const fams = splitFamilies(familyOf(r));
           const i = dow(dateOf(r, "order_date"));
-          const rev = num(r, "rev") / fams.length;
-          const ord = num(r, "ord");
-          const bRev = num(r, "brev") / fams.length;
-          const bOrd = num(r, "bord");
+          const w = bw(dateOf(r, "order_date"));
+          const rev = (num(r, "rev") / fams.length) * w;
+          const ord = num(r, "ord") * w;
+          const bRev = (num(r, "brev") / fams.length) * w;
+          const bOrd = num(r, "bord") * w;
           const sales = salesLabelOf(r);
           for (const f of fams) {
             for (const [scope, sRev, sOrd] of [
@@ -2959,10 +2967,11 @@ export const refreshSnapshot = internalAction({
           for (const r of nrows) {
             const fams = splitFamilies(familyOf(r));
             const i = dow(dateOf(r, "order_date"));
-            const rev = num(r, "rev") / fams.length;
-            const ord = num(r, "ord");
-            const bRev = num(r, "brev") / fams.length;
-            const bOrd = num(r, "bord");
+            const w = bw(dateOf(r, "order_date"));
+            const rev = (num(r, "rev") / fams.length) * w;
+            const ord = num(r, "ord") * w;
+            const bRev = (num(r, "brev") / fams.length) * w;
+            const bOrd = num(r, "bord") * w;
             const sales = salesLabelOf(r);
             for (const f of fams) {
               for (const [scope, sRev, sOrd] of [
@@ -3703,7 +3712,7 @@ export const refreshSnapshot = internalAction({
         Array<{ date: string; revenue: number }>
       >();
       const seenDay = new Set<string>();
-      for (const row of [...clinicBaseDays, ...clinicDays]) {
+      for (const row of [...clinicBaseDays.filter(r => r.date < currentStart), ...clinicDays]) {
         if (row.orders <= 0) continue;
         const k = `${row.clinic}|${row.date}`;
         if (seenDay.has(k)) continue;
@@ -3928,7 +3937,8 @@ export const refreshSnapshot = internalAction({
         om.set(date, (om.get(date) ?? 0) + ord);
         clinicDateOrd.set(clinic, om);
       };
-      for (const r of clinicBaseDays)
+      // The baseline window can overlap the analysis window: its days from currentStart on are already in clinicDays.
+      for (const r of clinicBaseDays.filter(x => x.date < currentStart))
         addClinicDay(r.clinic, r.date, r.revenue, r.orders);
       for (const r of clinicDays)
         addClinicDay(r.clinic, r.date, r.revenue, r.orders);
@@ -3950,7 +3960,7 @@ export const refreshSnapshot = internalAction({
         m.set(date, (m.get(date) ?? 0) + v2);
         store.set(key, m);
       };
-      const allClinicDays = [...clinicBaseDays, ...clinicDays];
+      const allClinicDays = [...clinicBaseDays.filter(r => r.date < currentStart), ...clinicDays];
       for (const r of allClinicDays) {
         const idty = identity.get(r.clinic);
         const lead = idty?.teamLead ?? "—";
@@ -4019,7 +4029,7 @@ export const refreshSnapshot = internalAction({
       }
       // Top-down allocation [Shyam, 2026-10-12]: overall → geo → rep×geo;
       // reps/leads are sums of their cells. Clinic P75 stays unscaled.
-      const td = topDownAllocate({ defs, planOf, days: allClinicDays, identity, rates: clinicMeta.map(m => ({ clinic: m.clinic, rev: m.rev, ord: m.ord })), companyDaily: daily, target: { annual: cfg.annualTarget ?? 130_000_000, year: Number(currentEnd.slice(0, 4)), newSlice: (cfg as { newBusinessGoal?: number }).newBusinessGoal ?? (priorNewTotal || 0.05 * (cfg.annualTarget ?? 130_000_000)), newPhasing, newDefaultSlice: priorNewTotal || undefined } });
+      const td = topDownAllocate({ defs, planOf, days: allClinicDays, identity, rates: clinicMeta.map(m => ({ clinic: m.clinic, rev: m.rev, ord: m.ord })), companyDaily: daily, target: { annual: cfg.annualTarget ?? 130_000_000, year: Number(currentEnd.slice(0, 4)), newSlice: (cfg as { newBusinessGoal?: number }).newBusinessGoal ?? (priorNewTotal || 0.05 * (cfg.annualTarget ?? 130_000_000)), newPhasing, newDefaultSlice: priorNewTotal || undefined, weights: goalWeights(new Map((await pGoalLy).map(r => [dateOf(r, "order_date"), num(r, "rev")] as const)), goalYear) } });
       const leadPeriodBaseline = td.lead;
       const salesPeriodBaseline = td.sales;
       // Clinic expectations are no longer scaled to reps: every clinic's goal is its baseline x the period goal factor (baseline.ts).
@@ -4190,7 +4200,7 @@ export const refreshSnapshot = internalAction({
             reqEnd: asOf,
             requestAt,
             baseRevAll: clinicMeta.reduce((t, m) => t + m.baseRev, 0),
-            baseOrdersAll: clinicMeta.reduce((t, m) => t + m.baseOrders, 0),
+            baseOrdersAll: clinicMeta.reduce((t, m) => t + m.baseOrders, 0), baselineCounts: baseDayInfo.counts, baselineWeights: Object.entries(baseDayInfo.weight).filter(([, w]) => w !== 1).map(([d, w]) => ({ d, w })),
           },
         );
         // A completed window is protected by config.gen; stale/reset windows
@@ -4231,7 +4241,7 @@ export const refreshSnapshot = internalAction({
         gen,
         genSeq: gen,
         baseRevAll: clinicMeta.reduce((t, m) => t + m.baseRev, 0),
-        baseOrdersAll: clinicMeta.reduce((t, m) => t + m.baseOrders, 0),
+        baseOrdersAll: clinicMeta.reduce((t, m) => t + m.baseOrders, 0), baselineCounts: baseDayInfo.counts, baselineWeights: Object.entries(baseDayInfo.weight).filter(([, w]) => w !== 1).map(([d, w]) => ({ d, w })),
       });
       try {
         await ctx.runMutation(internal.insights.generateFromRefresh, {

@@ -259,6 +259,10 @@ const schema = defineSchema({
     /** The company rolling P75 for the period (the old goal), kept as a benchmark. */
     p75Revenue: v.optional(v.number()),
     p75Orders: v.optional(v.number()),
+    /** METRIC_DEFINITIONS.md A11: this period's share of the year's goal weights, and the baseline of its days outside the
+     * target year. Existing goal = (target - new-business goal) x curveShare + outBase, re-based at read time. */
+    curveShare: v.optional(v.number()),
+    outBase: v.optional(v.number()),
     gen: v.optional(v.number()),
   })
     .index("by_gen", ["gen"])
@@ -558,6 +562,9 @@ const schema = defineSchema({
     // even when it reads only one rep's or team lead's clinics.
     baseRevAll: v.optional(v.number()),
     baseOrdersAll: v.optional(v.number()),
+    /** Baseline day counts per weekday (Sun..Sat) and the window days whose weight is not 1 (METRIC_DEFINITIONS.md A4–A5). */
+    baselineCounts: v.optional(v.array(v.number())),
+    baselineWeights: v.optional(v.array(v.object({ d: v.string(), w: v.number() }))),
     error: v.optional(v.string()),
     requestedAt: v.optional(v.number()),
   }).index("by_key", ["key"]),

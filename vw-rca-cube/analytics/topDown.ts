@@ -8,6 +8,7 @@
 import { geoKeyOf } from "./geoKey";
 import { dow, rollingBaseline, type baselinePlan } from "./dateUtils";
 import { newShareOver } from "./baseline";
+import { curveShareOver } from "./goalCurve";
 
 type Kind = "all" | "quarter" | "month" | "week" | "day";
 type Def = { id: string; kind: Kind; days: string[] };
@@ -46,6 +47,10 @@ export function topDownAllocate(args: {
     newPhasing?: number[];
     /** last year's new-clinic revenue: the default new-business goal */
     newDefaultSlice?: number;
+    /** METRIC_DEFINITIONS.md A10: each day's goal weight (last year's normal level x this year's holiday factor). When given,
+     * the existing-business goal is (target - new-business goal) spread by these weights; days outside the year keep
+     * their baseline as the goal. */
+    weights?: ReadonlyMap<string, number>;
   };
 }) {
   const { defs, planOf, days, identity, rates, companyDaily, target } = args;
@@ -61,6 +66,7 @@ export function topDownAllocate(args: {
     periodId: string; goalRevenue: number; goalOrders: number; baseRevenue: number; baseOrders: number;
     target?: number; newSlice?: number; newShare?: number; newPhasing?: number[]; newDefaultSlice?: number;
     yearBaseRevenue?: number; tShare?: number; p75Revenue?: number; p75Orders?: number;
+    curveShare?: number; outBase?: number;
   }> = [];
   // Company mean revenue per weekday, and the baseline of the whole target year (every day, Jan 1 to Dec 31).
   const coRate = [0, 0, 0, 0, 0, 0, 0];
@@ -119,7 +125,23 @@ export function topDownAllocate(args: {
     const sumR = reps.reduce((x, y) => x + y.r, 0), sumO = reps.reduce((x, y) => x + y.o, 0);
     let totR = p75R, totO = p75O;
     let tShare: number | undefined;
-    if (target && yearBase > 0 && sumR > 0) {
+    let curveShare: number | undefined;
+    let outBase: number | undefined;
+    if (target?.weights && sumR > 0) {
+      // A11: existing goal = (target - new-business goal) x the period's share of the year's goal weights; no floor.
+      const cntOut = [0, 0, 0, 0, 0, 0, 0];
+      const inYear: string[] = [];
+      for (const d of pd) (Number(d.slice(0, 4)) === target.year ? inYear.push(d) : cntOut[dow(d)]++);
+      outBase = reps.reduce((t, y) => t + (repDowRev.get(y.k) ?? []).reduce((u, x, w) => u + x * cntOut[w], 0), 0);
+      curveShare = curveShareOver(target.weights, inYear);
+      let inBase = 0;
+      for (const d of inYear) inBase += coRate[dow(d)];
+      const allBase = pd.reduce((t, d) => t + coRate[dow(d)], 0);
+      tShare = allBase > 0 ? inBase / allBase : 0;
+      totR = (target.annual - (target.newSlice ?? 0)) * curveShare + outBase;
+      // A12: orders goal = baseline orders x revenue goal / revenue baseline.
+      totO = sumO * (totR / sumR);
+    } else if (target && yearBase > 0 && sumR > 0) {
       let inYear = 0;
       for (const d of pd) if (Number(d.slice(0, 4)) === target.year) inYear += coRate[dow(d)];
       const allBase = pd.reduce((t, d) => t + coRate[dow(d)], 0);
@@ -138,6 +160,7 @@ export function topDownAllocate(args: {
         ...(target!.newPhasing ? { newShare: newShareOver(target!.newPhasing, pd, target!.year), newPhasing: target!.newPhasing } : {}),
         ...(target!.newDefaultSlice ? { newDefaultSlice: target!.newDefaultSlice } : {}),
       }),
+      ...(curveShare === undefined ? {} : { curveShare, outBase }),
       p75Revenue: p75R, p75Orders: p75O,
     });
     const repR = new Map<string, number>(), repO = new Map<string, number>();
