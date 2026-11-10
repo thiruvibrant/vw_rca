@@ -140,3 +140,75 @@ Because shares come from the best window, a rep whose book has shrunk since Feb�
 1. The 2026 target: $130M, or a stretch number. Each extra $5M adds about 4% to every rep's goal.
 2. Where the rep split comes from: the best-window share (as written, so reps get −11% to +22% over their recent pace), or each rep's share of the **last 13 weeks** (every rep gets the same stretch, +8.6% in November). The company baseline and goal are the same either way.
 3. The outlier cap: 2× the weekday median (proposed), or another number.
+4. **Holiday season (found 2026-11-10).** Several weekdays between Christmas and New Year's Day are not listed but run well below a normal day:
+   - Dec 22–23 and Dec 29–30 ran at 0.56–0.77 of a normal day in 2023–25.
+   - In 2026 the list has only Dec 24, 25 and 31, so Dec 21–23 and 28–30 carry a full-day goal.
+   - Option: add these days to `holidays.csv` with their measured factors. This moves about $0.5M of goal from late December to the rest of the year, in both the emails and the dashboard.
+
+## 8. Momentum: is the business speeding up or slowing down?
+The Overview's top tile, with an alert-rail card when it says Watch or Alert. It uses plain statistics: classical seasonal adjustment plus control-chart rules. Code: `analytics/momentumModel.ts`. Tests and simulation: `scripts/momentum.test.ts`.
+
+**Pace.** Each day's expected revenue = seasonal strength × the usual level.
+- **Seasonal strength** = last year's normal level for the day (A10 rule, smoothed to 12 days within ±6 weeks) × this year's holiday factor ÷ last year's trend (the 364-day average centred on that day).
+  - Dividing by last year's trend matters. Comparing with last year directly would turn last year's growth into a fake slide this year. In 2026, plain year-over-year growth fell from +35% to −5% while revenue itself was flat.
+- **Usual level** = the half-year (26 complete weeks) just before the last 16 weeks.
+- **Pace** = actual ÷ expected − 1.
+- The tile also shows plain growth vs last year for context.
+
+**Windows.** Pace for the last 1, 4, 8 and 16 complete Monday–Sunday weeks. The unfinished week is shown only as "this week so far".
+
+**Noise.** Weekly noise σ is measured from week-to-week changes over the 52 weeks before the recent 16, so a slow trend can't inflate it.
+- An n-week window's band = σ × √(1/n + 1/26) × 1.25.
+- The 1.25 allows for neighbouring weeks moving together. It was calibrated by simulation, so a steady business reads within ±2 bands about 95% of the time.
+- Before the weekly checks run, each business day is capped at 3 robust SDs of the daily ratio, so one extraordinary day can't look like a shift.
+
+**Five checks. Each votes dip, rise or nothing:**
+
+| Check | Catches | Votes when |
+|---|---|---|
+| 4-week level | a level shift | the 4-week pace is beyond 2 bands |
+| Recent days | a sudden break | ≥2 of the last 5 business days are beyond 3 robust SDs of that weekday's last 8 season-adjusted days |
+| Run of weeks | a continuous dip | 7 of the last 8 weeks are on one side of usual, or 4 of the last 5 are beyond 1 band |
+| 8-week trend | a slow slide | the least-squares slope's t-statistic is beyond ±2.45 |
+| Build-up (CUSUM) | a small, steady shift, and its start | the one-sided CUSUM (k = 0.5, h = 5, weekly steps capped at ±3 bands) crosses its limit |
+
+**Verdict.** 3 or more checks agree → **Alert**. 2 → **Watch**. Otherwise **Normal**.
+- From Dec 20 to Jan 3 the recent-days check is paused and the verdict is Watch at most. Business runs at 40–80% of normal in this stretch (decision 4).
+
+**Pattern.** The 16 weeks are read as blocks (weeks 1–4, 5–8 and 9–16 back), each against its own band:
+- **Sustained:** weeks 1–4 and 9–16 are both off in the same direction.
+- **New:** only the recent block is off. "Deepening" when the last week is further off than the 4 weeks.
+- **Recovering:** weeks 1–4 are off but less than half as much as weeks 5–8.
+- **Back to usual:** weeks 1–4 are normal but an earlier block was off.
+- **One-week blip:** only the last week is off.
+
+This answers the "4 weeks good, 8 weeks bad, 16 weeks good" case: the weeks 5–8 block shows the dip, and weeks 1–4 show the recovery.
+
+**Drivers.** The 3 states and 3 reps with the largest dollar gap over the last 4 weeks.
+- An entity's usual = its revenue on the same days last year × the company's season adjustment and usual growth. The gaps therefore add up to the company's gap.
+- A driver is **sustained** when its 16-week change agrees in direction and is at least half its 4-week change. Otherwise it is **new**.
+
+**Validation (2026-11-10).**
+- **Simulation, 150–200 runs per case:**
+
+  | Case | Alert | Watch |
+  |---|---|---|
+  | Steady business | 2% | 5–7% |
+  | One very bad day | 1% | 5% |
+  | 5-week dip of −12% | 97% | 2% |
+  | 5-week dip of −8% | 56% | 25% |
+  | Slow slide to −12% | 90% | 7% |
+  | Dip in weeks 5–8 that recovered | 3% | 28% |
+
+- **Real revenue, Nov 2025 – Nov 2026:**
+  - Alerts:
+    - the late-2025 growth spurt (rise)
+    - Feb 2026 (rise, 3 weeks)
+    - from Sep 27 2026 (dip)
+  - The current dip is dated to Sep 14, the same as BigQuery shows.
+  - Watch only: the July 2026 wobble and the Christmas weeks.
+
+**Where it shows.**
+- The Overview tile (team logins only, because it names states and reps).
+- An alert-rail card, and with it a daily insight card, while it says Watch or Alert.
+- The snapshot step is `momentum:build` in `engine/builder.ts`. It runs before the main rebuild and is best effort: without it, the tile stays hidden.

@@ -119,18 +119,26 @@ export function dayWeight(bd: Pick<BaselineDays, "weight"> | null | undefined, d
  */
 export function goalWeights(lyRevByDay: ReadonlyMap<string, number>, year: number): Map<string, number> {
   const out = new Map<string, number>();
-  for (const d of eachDay(`${year}-01-01`, `${year}-12-31`)) {
-    const ly = addDays(d, -364);
-    const near: number[] = [];
-    for (let k = 1; k <= 4 && near.length < 4; k++) {
-      for (const x of [addDays(ly, -7 * k), addDays(ly, 7 * k)]) {
-        // Only days before the goal year: the year's goal is fixed on Jan 1 and never moves as January data arrives.
-        if (near.length < 4 && x < `${year}-01-01` && !isWeekdayHoliday(x) && lyRevByDay.has(x)) near.push(lyRevByDay.get(x)!);
-      }
-    }
-    out.set(d, median(near) * calendarEffect(d));
-  }
+  // Only days before the goal year: the year's goal is fixed on Jan 1 and never moves as January data arrives.
+  for (const d of eachDay(`${year}-01-01`, `${year}-12-31`)) out.set(d, normalLevel(lyRevByDay, d, `${year}-01-01`) * calendarEffect(d));
   return out;
+}
+
+/**
+ * A10 Normal(d): the median revenue of the first `take` non-holiday days among ly±7, ±14, … ±7·reach (nearest first),
+ * ly = d − 364, using only days before `before` that are in `revByDay`. 0 when none are found.
+ * The goal uses A10's 4 of ±4 weeks. The momentum tile (analytics/momentum.ts) uses 12 of ±6 weeks: the same rule,
+ * smoothed more, so one unusual week last year doesn't make several weeks this year look off.
+ */
+export function normalLevel(revByDay: ReadonlyMap<string, number>, d: string, before?: string, take = 4, reach = 4): number {
+  const ly = addDays(d, -364);
+  const near: number[] = [];
+  for (let k = 1; k <= reach && near.length < take; k++) {
+    for (const x of [addDays(ly, -7 * k), addDays(ly, 7 * k)]) {
+      if (near.length < take && (!before || x < before) && !isWeekdayHoliday(x) && revByDay.has(x)) near.push(revByDay.get(x)!);
+    }
+  }
+  return median(near);
 }
 
 /** Share of the year's existing-business goal falling on the given days (A11, Existing). Days outside the year add 0. */
