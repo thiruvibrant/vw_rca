@@ -194,7 +194,8 @@ function startTunnel() {
     const child = spawn(bin, ["tunnel", "--no-autoupdate", "--url", `http://localhost:${PORT}`], { stdio: ["ignore", "pipe", "pipe"] });
     let announced = false;
     const onData = async (d: Buffer) => {
-      const m = String(d).match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
+      // cloudflared also prints https://api.trycloudflare.com in its own error messages: that is never our address.
+      const m = String(d).match(/https:\/\/(?!api\.)[a-z0-9-]+\.trycloudflare\.com/);
       if (!m || announced) return;
       announced = true;
       console.log("tunnel up:", m[0]);

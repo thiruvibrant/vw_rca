@@ -138,7 +138,7 @@ rsh "cd $REMOTE_DIR && tar -xzf rca-engine.tgz && rm rca-engine.tgz && { $COMPOS
 step "Waiting for the public tunnel address"
 URL=""
 for _ in $(seq 1 40); do
-  URL="$(rsh "docker logs rca-engine-thiru 2>&1 | grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' | tail -1" || true)"
+  URL="$(rsh "docker logs rca-engine-thiru 2>&1 | grep -o 'tunnel up: https://[a-z0-9-]*\.trycloudflare\.com' | grep -v '//api\.' | tail -1 | cut -d' ' -f3" || true)"
   [ -n "$URL" ] && break
   sleep 3
 done

@@ -78,7 +78,7 @@ EOF
   launchctl bootstrap "$DOMAIN" "$PLIST" 2>/dev/null || { sleep 2; launchctl bootstrap "$DOMAIN" "$PLIST"; }
   echo "==> Started. Waiting for the public address..."
   for _ in $(seq 1 30); do
-    URL="$(grep -o 'tunnel up: https://[a-z0-9-]*\.trycloudflare\.com' "$LOG" 2>/dev/null | tail -1 | cut -d' ' -f3)"
+    URL="$(grep -o 'tunnel up: https://[a-z0-9-]*\.trycloudflare\.com' "$LOG" 2>/dev/null | grep -v '//api\.' | tail -1 | cut -d' ' -f3)"
     [ -n "$URL" ] && curl -s -m 5 "$URL/health" | grep -q '"code"' && break
     sleep 3
   done
