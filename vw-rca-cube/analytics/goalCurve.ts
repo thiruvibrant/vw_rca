@@ -124,7 +124,8 @@ export function goalWeights(lyRevByDay: ReadonlyMap<string, number>, year: numbe
     const near: number[] = [];
     for (let k = 1; k <= 4 && near.length < 4; k++) {
       for (const x of [addDays(ly, -7 * k), addDays(ly, 7 * k)]) {
-        if (near.length < 4 && !isWeekdayHoliday(x) && lyRevByDay.has(x)) near.push(lyRevByDay.get(x)!);
+        // Only days before the goal year: the year's goal is fixed on Jan 1 and never moves as January data arrives.
+        if (near.length < 4 && x < `${year}-01-01` && !isWeekdayHoliday(x) && lyRevByDay.has(x)) near.push(lyRevByDay.get(x)!);
       }
     }
     out.set(d, median(near) * calendarEffect(d));

@@ -121,7 +121,7 @@ Because shares come from the best window, a rep whose book has shrunk since Feb�
 - **A9. Period baseline.** The sum of rate[weekday(d)] over the period's days. An unfinished last day uses the before-cut-off rate.
 - **A10. Goal day weight.** For each day d of year Y:
   - ly = d − 364 days.
-  - Normal(d) = the median of the revenue on the first four non-holiday days among ly ± 7, ly ± 14, ly ± 21, ly ± 28 (nearest first). Neighbours may fall just outside last year (early January uses late December two years back, late December uses early January of this year). If fewer than four are found, use the median of those found.
+  - Normal(d) = the median of the revenue on the first four non-holiday days among ly ± 7, ly ± 14, ly ± 21, ly ± 28 (nearest first). Neighbours may be any day **before the goal year starts** (early January uses late December two years back). Days in the goal year are never used, so the year's goal is fixed on Jan 1. If fewer than four are found (the last days of December), use the median of those found.
   - W(d) = Normal(d) × (d's factor if d is a weekday holiday, else 1).
 - **A11. Daily goal.**
   - T = the annual target.
