@@ -23,6 +23,8 @@ type Read = {
   side: Sign;
   light: Light;
   since: string | null;
+  /** one entry per week for the last 52 weeks, oldest first */
+  history: { weekEnd: string; light: Light; side: Sign }[];
 };
 type Driver = { key: string; label: string; gap: number; pct4: number | null; tag: "ongoing" | "new" };
 export type Summary = {
@@ -75,6 +77,24 @@ function Line({ r }: { r: Read }) {
   );
 }
 
+/** Background for a light: Normal is a pale green so the coloured weeks stand out. */
+const fill = (light: Light, side: Sign) => {
+  const l = look(light, side);
+  return light === "green" ? `color-mix(in srgb, ${GOOD} 35%, var(--surface-card))` : l.color;
+};
+
+/** One small block per week for the last 52 weeks, coloured by that week's light; hover a block for the week. */
+function Strip({ history }: { history: Read["history"] }) {
+  if (!history?.length) return null;
+  return (
+    <div className="ev-mo-strip" role="img" aria-label="Each of the last 52 weeks: normal, watch, dropping or growing">
+      {history.map(h => (
+        <i key={h.weekEnd} title={`Week to ${day(h.weekEnd)}: ${look(h.light, h.side).word}`} style={{ background: fill(h.light, h.side) }} />
+      ))}
+    </div>
+  );
+}
+
 const trend = { improving: "Getting better", worsening: "Getting worse", steady: "Holding steady" };
 
 function Tile({ name, r }: { name: string; r: Read }) {
@@ -96,8 +116,9 @@ function Tile({ name, r }: { name: string; r: Read }) {
         </li>
         <li>Trend: {trend[r.way]}</li>
       </ul>
+      <div className="ev-mo-cap">Last 6 months · grey band = normal range · blocks = each of the last 52 weeks</div>
       <Line r={r} />
-      <div className="ev-mo-cap">Last 6 months · grey band = normal range</div>
+      <Strip history={r.history} />
       <div className="ev-mo-wins">
         {r.windows.map(w => (
           <span key={w.weeks} className={w.weeks === 4 ? "is-main" : undefined}>
@@ -143,8 +164,10 @@ export function MomentumView({ m, teamLead }: { m: Summary; teamLead?: string })
         </div>
       ) : null}
       <div className="ev-mo-foot">
-        Normal = the usual level for this time of year, based on the last 6 months with seasonal and holiday effects taken out.
-        Dropping / Growing = outside the normal range for 5+ weeks. Watch = outside it recently, or drifting for 6+ weeks.
+        <span className="ev-mo-key"><i style={{ background: fill("green", 0) }} /> Normal: within the usual range for this time of year</span>
+        <span className="ev-mo-key"><i style={{ background: WARN }} /> Watch: outside it recently, or drifting 6+ weeks</span>
+        <span className="ev-mo-key"><i style={{ background: BAD }} /> Dropping / <i style={{ background: GOOD }} /> Growing: outside it for 5+ weeks</span>
+        <span>Normal is based on the last 6 months, with seasonal and holiday effects taken out.</span>
       </div>
     </section>
   );

@@ -139,6 +139,10 @@
 .ev-mo-facts b { font-weight: 500; color: var(--text-primary); }
 .ev-mo-spark { width: 100%; height: 54px; display: block; }
 .ev-mo-cap { margin-top: 6px; font-size: 10px; color: var(--text-tertiary); }
+.ev-mo-strip { display: grid; grid-template-columns: repeat(52, minmax(0, 1fr)); gap: 1px; height: 10px; }
+.ev-mo-strip i { display: block; border-radius: 1px; }
+.ev-mo-key { display: inline-flex; align-items: center; gap: 5px; }
+.ev-mo-key i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
 .ev-mo-wins { display: flex; flex-wrap: wrap; gap: 4px 14px; font-family: var(--font-mono); font-size: 10px; color: var(--text-tertiary); }
 .ev-mo-wins b { font-weight: 400; color: var(--text-secondary); }
 .ev-mo-wins .is-main, .ev-mo-wins .is-main b { color: var(--text-primary); font-weight: 500; }
