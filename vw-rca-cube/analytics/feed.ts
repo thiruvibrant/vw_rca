@@ -6,7 +6,8 @@ import {
   windowP75, dow, eachDay } from "./dateUtils";
 import { gatedQuery, scopedAction, scopedQuery } from "./gated";
 import { loadStops } from "./familyStops";
-import { MONEY, INT, offsetFeedItem, vaFeedItem, gzLossItem, baseLabelOf, OFFSET_PAIRS, VA_MIN_AOV, VA_MIN_ORDERS_PER_WEEK, mappingFor, inferenceFor, actionFor, REP_ACTION, statusFor, confidenceFor, evidenceFrom } from "./feedItems";
+import { loadMomentum } from "./momentum";
+import { MONEY, INT, momentumFeedItem, offsetFeedItem, vaFeedItem, gzLossItem, baseLabelOf, OFFSET_PAIRS, VA_MIN_AOV, VA_MIN_ORDERS_PER_WEEK, mappingFor, inferenceFor, actionFor, REP_ACTION, statusFor, confidenceFor, evidenceFrom } from "./feedItems";
 import { salesFamilyRows } from "./leadFamilies";
 import { createJiraIssue, jiraConfig } from "./jira";
 import { COMPANY_SCOPE, TEAM_PREFIX, isCompanyLead, isTeamScope, repsInScope, teamOf } from "./scope";
@@ -144,6 +145,13 @@ export async function build(
       a: `${MONEY(delta)} against the baseline run rate over ${days.length} days — ${PLAIN(actual)} actual vs ${PLAIN(expected)} expected.`,
       detail: `${cfg.currentStart} → ${cfg.currentEnd}, measured against ${cfg.baselineStart} → ${cfg.baselineEnd}.`,
     });
+
+    // Momentum (Overview tile): only for the live view, not historical snapshots, and only when it says Watch or Alert.
+    if (!configKey) {
+      const mo = await loadMomentum(ctx);
+      const item = mo && momentumFeedItem(mo);
+      if (item) items.push(item);
+    }
 
     // Is it still bleeding? Last 14 days vs the 14 before them.
     const tail = days.slice(-14);

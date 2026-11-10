@@ -654,6 +654,15 @@ const schema = defineSchema({
     orderedAfter: v.boolean(),
   }).index("by_clinic", ["clinic"]),
 
+  // Momentum tile: one row, the anomaly consensus read of company revenue + its drivers (snapshot build step,
+  // analytics/momentum.ts; rules: METRIC_DEFINITIONS.md §8). Company / state / rep totals only.
+  momentum: defineTable({
+    key: v.string(),
+    asOf: v.string(),
+    builtAt: v.number(),
+    data: v.any(),
+  }),
+
   // First order date per product family (snapshot build step, analytics/familyLaunch.ts): drives "new product releases".
   familyLaunch: defineTable({
     family: v.string(),

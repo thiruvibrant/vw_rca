@@ -11,6 +11,7 @@ import {
   baselinePlan,
   baselineWindow,
   bucketing,
+  completeThrough,
   computeP75Factors,
   diffDays,
   dow,
@@ -175,8 +176,7 @@ export const refreshData = internalAction({
       // date is yesterday or older it has fully landed and the window runs through it (2026-10-20; before, one day was
       // always dropped, so a complete Oct 19 showed as "data to Oct 18").
       const lagDays = Math.min(cfg.lagDays, DEFAULTS.lagDays);
-      const todayPT = new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
-      const latest = maxDate >= todayPT ? addDays(maxDate, -lagDays) : maxDate;
+      const latest = completeThrough(maxDate, lagDays);
       // Main window always rolls forward to the latest data (Shyam, 2026-10-04):
       // the admin UI no longer edits the shared window, so a fixed end froze reps.
       const currentEnd = true

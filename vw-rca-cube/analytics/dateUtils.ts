@@ -591,3 +591,13 @@ export function quarterStart(key: string): string {
   const [y, q] = key.split("-Q").map(Number);
   return `${y}-${String((q - 1) * 3 + 1).padStart(2, "0")}-01`;
 }
+
+/**
+ * The data-through date for the latest order day in Cube. Only a day that is today (Pacific) can still be filling, so
+ * only then is it trimmed by `lagDays`; yesterday or older has fully landed (refresh.ts, 2026-10-20). Shared by the
+ * main rebuild and the momentum step, so both read the same days.
+ */
+export function completeThrough(maxDate: string, lagDays: number, now: Date = new Date()): string {
+  const todayPT = now.toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
+  return maxDate >= todayPT ? addDays(maxDate, -lagDays) : maxDate;
+}

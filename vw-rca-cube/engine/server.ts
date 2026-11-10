@@ -140,6 +140,9 @@ function runBuilder(mode: Mode = "daily"): Promise<{ secs: number }> {
     child.stderr.on("data", d => (log += d));
     child.on("exit", code => {
       if (code !== 0) return reject(new Error(`builder exited ${code}: ${log.slice(-400)}`));
+      // Best-effort steps (momentum, fz scores, family stops…) log "<step> failed: …" and the build still succeeds:
+      // surface those lines, or a step can fail silently for days.
+      for (const line of log.split("\n")) if (/^[\w ]+ failed: /.test(line)) console.error(`builder: ${line.slice(0, 300)}`);
       resolve({ secs: Math.round((Date.now() - t0) / 1000) });
     });
   });

@@ -73,9 +73,18 @@ export async function buildSnapshot(
   if (mode !== "daily" && liveDir && fs.existsSync(path.join(liveDir, "config"))) {
     db.load("config", loadExport(liveDir, ["config"]).dump().config.filter(r => r.key === "main"));
   }
-  const host = new Host(db, ["ingest", "config", "insights", "refresh", "familyLaunch", "familyStops", "families", "fzScores"], ["query", "mutation", "action"]);
+  const host = new Host(db, ["ingest", "config", "insights", "refresh", "familyLaunch", "familyStops", "families", "fzScores", "momentum"], ["query", "mutation", "action"]);
   await host.ready;
   const t0 = Date.now();
+  if (mode === "daily") {
+    // Momentum tile (METRIC_DEFINITIONS.md §8). Before the main rebuild, so its insight cards can include it.
+    // Best effort: without it the Overview hides the tile.
+    try {
+      console.log("momentum:", JSON.stringify(await host.invoke("momentum:build", {})));
+    } catch (e) {
+      console.error("momentum failed:", String(e).slice(0, 200));
+    }
+  }
   const fn = mode === "weekly" ? "refresh:weeklySnapshotTick" : mode === "monthly" ? "refresh:monthlySnapshotTick" : "refresh:refreshData";
   const result = await host.invoke(fn, {});
   if (mode === "daily") {

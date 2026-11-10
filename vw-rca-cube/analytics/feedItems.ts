@@ -3,6 +3,7 @@
  * same question reads the same wherever it appears. Pure functions: no database, no Convex imports.
  */
 import type { FeedItem } from "./feed";
+import type { Driver, Momentum } from "./momentumModel";
 
 export const MONEY = (n: number) => {
   const a = Math.abs(n);
@@ -34,6 +35,7 @@ export const TAG_MAP: Record<string, Mapping> = {
   Geography: { domain: "Revenue", topic: "Geography", prefix: "REV" },
   Channel: { domain: "Revenue", topic: "Channel", prefix: "REV" },
   Mix: { domain: "Revenue", topic: "Bundle Mix", prefix: "REV" },
+  Momentum: { domain: "Revenue", topic: "Anomaly", prefix: "REV" },
 };
 export const DEFAULT_MAP: Mapping = { domain: "Revenue", topic: "General", prefix: "REV" };
 export const mappingFor = (tag: string): Mapping => TAG_MAP[tag] ?? DEFAULT_MAP;
@@ -75,6 +77,10 @@ export const INFERENCE_BY_TAG: Record<string, (tone: string) => string> = {
     "A named ordering channel moving independently of the rest of the book points to a channel-specific cause.",
   Mix: () =>
     "Bundle share moves together with AOV — track the two side by side rather than in isolation.",
+  Momentum: tone =>
+    tone === "good"
+      ? "Several independent checks agree the business is running above its usual pace once season and holidays are removed."
+      : "Several independent checks agree the business has moved off its usual pace once season and holidays are removed — this is a shift, not one bad day.",
 };
 // Cards whose wording is specific to the question, not the tag (the tag-level text for "Target list" describes the flagged-clinic list).
 const ITEM_TEXT: Record<string, { inference: string; action: string }> = {
@@ -108,6 +114,7 @@ export const ACTION_BY_TAG: Record<string, string> = {
   Geography: "Check state-specific factors (rep coverage, local competitor, seasonal effects) before treating this as company-wide.",
   Channel: "Loop in the channel owner if the movement doesn't self-correct within a week.",
   Mix: "Track alongside the AOV card; the two should move together.",
+  Momentum: "Start with the drivers listed: a 'new' driver is worth a call this week; a 'sustained' one needs a plan, not a call.",
 };
 /** Wording for the rep Business feed where the main feed's line is written for a manager (the main feed says "confirm with reps"). */
 export const REP_ACTION: Record<string, string> = {
@@ -266,4 +273,21 @@ export function gzLossItem(
     focusLabel: "Clinics that stopped or are declining on Gut Zoomer",
     detail: [...Array.from({ length: Math.max(topStop.length, topDec.length) }, (_, i) => [topStop[i], topDec[i]]).flat().filter((x): x is string => !!x), ...rsm, states.length ? `Stopped, by state: ${states.join(", ")}` : "", dStates.length ? `Declining, by state: ${dStates.join(", ")}` : ""].filter(Boolean).join(" | "),
   };
+}
+
+const pctText = (x: number | null) => (x === null ? "n/a" : `${x >= 0 ? "+" : "−"}${Math.abs(x * 100).toFixed(1)}%`);
+const driverText = (d: Driver) => `${d.label} ${MONEY(d.gap)} (${pctText(d.pct4)}, ${d.tag})`;
+
+/** The momentum tile as an alert-rail card (METRIC_DEFINITIONS.md §8). Null when the read is Normal. */
+export function momentumFeedItem(m: Momentum & { drivers?: { states: Driver[]; reps: Driver[] } }): FeedItem | null {
+  if (m.status === "normal") return null;
+  const tone: FeedItem["tone"] = m.status === "alert" ? (m.direction > 0 ? "good" : "alert") : "watch";
+  const fired = m.votes.filter(v => v.vote !== 0);
+  const detail = [
+    `${fired.length} of ${m.votes.length} checks agree: ${fired.map(v => `${v.label} (${v.detail})`).join("; ")}`,
+    ...(m.drivers?.states.length ? [`States: ${m.drivers.states.map(driverText).join(", ")}`] : []),
+    ...(m.drivers?.reps.length ? [`Reps: ${m.drivers.reps.map(driverText).join(", ")}`] : []),
+    `Weeks to ${m.weekEnd}; season-adjusted vs the half-year before`,
+  ].join(" | ");
+  return { id: "momentum", tag: "Momentum", tone, q: "Is the business speeding up or slowing down?", a: m.headline, detail };
 }
