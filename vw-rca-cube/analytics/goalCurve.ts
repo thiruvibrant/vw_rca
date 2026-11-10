@@ -103,7 +103,7 @@ export function baselineDays(revByDay: ReadonlyMap<string, number>, start: strin
     const w = rev > cap && rev > 0 ? cap / rev : 1;
     if (w < 1) capped.push(d);
     weight[d] = w;
-    counts[dow(d)]++;
+    if (w > 0) counts[dow(d)]++; // A5: only days that count
   }
   return { weight, counts, medians, excluded, capped };
 }
