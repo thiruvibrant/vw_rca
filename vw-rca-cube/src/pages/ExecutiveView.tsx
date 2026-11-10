@@ -5,6 +5,7 @@ import { pw } from "./gatePw";
 import { isFzFamily } from "@/lib/fzAgenda";
 import { cellDelta, ExecClinicList, type ExecSel, MiniMeter, ProviderRetentionFunnel, useExecScorecard, usePillarStatus } from "./RepView";
 import { overviewTourAvailable, startOverviewTour } from "@/lib/usertour";
+import { MomentumTile } from "./MomentumTile";
 import "./exec.css";
 
 /** The slice of a bridge period this view reads. */
@@ -443,6 +444,8 @@ export function ExecutiveView({
         <div className="ev-eyebrow">Overview · {windowLabel}</div>
         <h2 className="ev-headline" data-tour="ov-headline">{headline}</h2>
       </div>
+
+      <MomentumTile teamLead={teamLead || undefined} />
 
       <div className="ev-periodbar">
         <div className="ev-caption">
