@@ -3,6 +3,7 @@ import { internalQuery, type QueryCtx } from "./_generated/server";
 import { loadCfg } from "./config";
 import { isCompanyLead, isTeamScope, teamOf } from "./scope";
 import { ACTIVE_COHORTS } from "./lifecycle";
+import { decodeLabel, moveOf, windowDates } from "./clinicLabels";
 import { goalFactors } from "./baseline";
 import {
   addDays,
@@ -51,7 +52,22 @@ export type ClinicRow = {
   country: string;
   teamLead: string;
   sales: string;
+  /** The clinic's label as of this window's end (analytics/clinicLabels.ts). */
   cohort: string;
+  /** Its label at the end of the window before (previous month / quarter); undefined for "all" or no history. */
+  prevCohort?: string;
+  /** up / down / neutral when the label changed since the window before (analytics/clinicLabels.ts moveOf). */
+  move?: "up" | "down" | "neutral" | null;
+  /** This month's company Top 20% list: last-12-months revenue, rank (1 = largest), list size, smallest revenue on it. */
+  t12Revenue?: number;
+  tierRank?: number;
+  tierCount?: number;
+  tierLine?: number;
+  /** Median calendar days between orders (lifecycle threshold input); lifetime revenue. */
+  typicalGap?: number;
+  lifetimeRevenue?: number;
+  /** The label at each stored month-end, oldest first (the clinic card's history strip). */
+  labelHistory?: Array<{ date: string; cohort: string }>;
   /** New-logo risk groups the clinic falls into (level 2 under new clinics). */
   newGroups: string[];
   /** First order this calendar year (analytics/lifecycleRules.ts). */
@@ -458,6 +474,12 @@ export async function drill(
   // drill() by ~30x and was needed to keep it under Convex's 1s budget.
   const dowCounts = [0, 0, 0, 0, 0, 0, 0];
   for (const d of days) dowCounts[dow(d)]++;
+  // Label per window (analytics/clinicLabels.ts): the label at this window's end, and at the end of the window before
+  // it (month vs month, quarter vs quarter; weeks and days by their month). Rows from before labels were stored keep
+  // their single refresh-time cohort.
+  const wDates = windowDates(args.periodId, days[days.length - 1], cfg.currentEnd);
+  const labelIn = (m: { cohort: string; labelAt?: Record<string, string> }) => decodeLabel(m.labelAt?.[wDates.at]) ?? m.cohort;
+  const labelBefore = (m: { labelAt?: Record<string, string> }) => (wDates.before ? decodeLabel(m.labelAt?.[wDates.before]) : undefined);
 
   // Scoped read: a rep's or team lead's own clinics come straight off an
   // index instead of reading the whole table and filtering in memory (which
@@ -558,7 +580,8 @@ export async function drill(
     if (args.teamLead && (m.teamLead ?? "—") !== args.teamLead) continue;
     if (args.sales && (m.sales ?? "—") !== args.sales) continue;
     // "active" is the grouped lifecycle stage (retained top 20% + the rest); see lifecycle.ts
-    if (lens === "cohort" && (args.key === "active" ? !ACTIVE_COHORTS.includes(m.cohort as never) : m.cohort !== args.key)) continue;
+    const cohort = labelIn(m);
+    if (lens === "cohort" && (args.key === "active" ? !ACTIVE_COHORTS.includes(cohort as never) : cohort !== args.key)) continue;
     if (lens === "state") {
       const inSet = stateKeys.has(m.state);
       if (exclude ? inSet : !inSet) continue;
@@ -614,7 +637,7 @@ export async function drill(
     // report). Keep the row (at $0/$0) for anything already tagged "new" so
     // funnel classification always sees it, regardless of the window.
     const baselineWeekly = m.rev.reduce((t: number, x: number) => t + x, 0);
-    if (expected === 0 && actual === 0 && !(m.newGroups ?? []).length && !(args.keepBaselined && (baselineWeekly > 0 || m.cohort === "reactivated" || m.cohort === "churned" || m.cohort === "new" || m.isNew))) continue;
+    if (expected === 0 && actual === 0 && !(m.newGroups ?? []).length && !(args.keepBaselined && (baselineWeekly > 0 || ["reactivated", "churned", "new"].some(c => c === m.cohort || c === cohort) || m.isNew))) continue;
 
     const baseAov = m.baseOrders ? m.baseRev / m.baseOrders : 0;
 
@@ -703,7 +726,18 @@ export async function drill(
       country: m.country ?? "—",
       teamLead: m.teamLead ?? "—",
       sales: m.sales,
-      cohort: m.cohort,
+      cohort,
+      prevCohort: labelBefore(m),
+      move: moveOf(labelBefore(m), decodeLabel(m.labelAt?.[wDates.at])),
+      t12Revenue: m.t12Revenue,
+      tierRank: m.tierRank,
+      tierCount: m.tierCount,
+      tierLine: m.tierLine,
+      typicalGap: m.typicalGap,
+      lifetimeRevenue: m.lifetimeRevenue,
+      labelHistory: Object.entries(m.labelAt ?? {})
+        .sort(([a], [b]) => (a < b ? -1 : 1))
+        .map(([date, code]) => ({ date, cohort: decodeLabel(code) ?? code })),
       newGroups: m.newGroups ?? [],
       isNew: m.isNew ?? false,
       life: m.life,

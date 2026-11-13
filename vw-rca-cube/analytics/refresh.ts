@@ -17,6 +17,7 @@ import {
   dow,
   eachDay,
   FIXED_DATE_HOLIDAYS,
+  monthEnd,
   monthsBackStart,
   type P75Factors,
   periodDefs,
@@ -34,6 +35,28 @@ import { baselineDays, bestWindow, dayWeight, goalWeights, lookbackOf } from "./
 import { newClinicFunnelGroups } from "./newClinicFunnel";
 import { eq, O, ordersRows, rows as cubeRows } from "./cube";
 import { dateOf, familyOf, num, splitFamilies, TABLE } from "./powerbi";
+import { labelDates, labelOf, labelsFor, listMonthOf, revenueMonthsFor, tierLists, type TierList } from "./clinicLabels";
+
+/** Revenue by month ("YYYY-MM") and clinic for the monthly Top 20% lists in force on `days` (analytics/clinicLabels.ts). */
+async function tierListsFor(days: string[]): Promise<Map<string, TierList>> {
+  const listMonths = [...new Set(days.map(listMonthOf))];
+  const months = revenueMonthsFor(listMonths);
+  const rows = await Promise.all(
+    months.map(m =>
+      ordersRows({ by: ["clinic_id"], start: `${m}-01`, end: monthEnd(`${m}-01`), m: { rev: "revenue" } }),
+    ),
+  );
+  const monthRev = new Map<string, Map<string, number>>();
+  months.forEach((m, i) => {
+    const byClinic = new Map<string, number>();
+    for (const r of rows[i]) {
+      const id = String(r[`${TABLE}[clinic_id]`] ?? "");
+      if (id) byClinic.set(id, (byClinic.get(id) ?? 0) + num(r, "rev"));
+    }
+    monthRev.set(m, byClinic);
+  });
+  return tierLists(monthRev, listMonths);
+}
 
 // Lifecycle stages (Shyam, 2026-10-16): new = first order in the window; retained_* = ordered in the baseline AND the
 // window (top 20% by baseline $ is a value tier of "active"); churned = ordered in the baseline, nothing in the window;
@@ -377,6 +400,9 @@ export const refreshData = internalAction({
       // Lifetime (as-of-cutoff) revenue and fee/deduction total per clinic —
       // for the High Margin Bleed flag's lifetime deduction rate.
       const pLifetimeAsOf = ordersRows({ by: ["clinic_id"], start: EARLIEST, end: currentEnd, m: { rev: "revenue", ded: "deductions" } });
+      // Monthly Top 20% lists (rolling 12 months) and the dates a label is kept for (analytics/clinicLabels.ts).
+      const labelDays = labelDates(currentStart, currentEnd);
+      const pTierLists = tierListsFor(labelDays);
 
       // Year-to-date VA-only orders per clinic — paired with the existing
       // YTD order total (pClinicYtd) for the High VA Dependency share.
@@ -682,21 +708,26 @@ export const refreshData = internalAction({
         priorOf.set(String(r[`${TABLE}[clinic_id]`] ?? ""), { rev: num(r, "rev"), ord: num(r, "ord") });
       }
       const lifeYear = currentEnd.slice(0, 4);
+      const tierListOf = await pTierLists;
+      const currentList = tierListOf.get(listMonthOf(currentEnd));
+      const labelAtOf = new Map<string, Record<string, string>>();
       const lifeOf = new Map<string, Lifecycle>();
       const lifeScope = new Set<string>([...baseByClinic.keys(), ...currentByClinic.keys()]);
       for (const [lid, fo] of firstOrderOf) if (fo.startsWith(lifeYear)) lifeScope.add(lid);
       const newBaseRemoved = new Map<string, ClinicBase>();
       const ownHistoryAdded = new Map<string, ClinicBase>();
       for (const id of lifeScope) {
-        const lc = classifyClinic({
+        const lcInput = {
           firstOrder: firstOrderOf.get(id) ?? "",
           orderDates: orderDatesForLife.get(id) ?? [],
-          cutoff: currentEnd,
           hasBaselineRevenue: (baseByClinic.get(id)?.total ?? 0) > 0,
           hasWindowRevenue: (currentByClinic.get(id) ?? 0) > 0,
           priorRevenue: priorOf.get(id)?.rev ?? 0,
-        });
+        };
+        const lc = classifyClinic({ ...lcInput, cutoff: currentEnd });
         lifeOf.set(id, lc);
+        // The label at every month-end the window can show (and the one before it), same rules, other cutoffs.
+        labelAtOf.set(id, labelsFor({ ...lcInput, clinic: id }, labelDays, tierListOf));
         if (lc.isNew) {
           // New clinics carry no baseline: take whatever the baseline window gave them out of every baseline sum.
           const b0 = baseByClinic.get(id);
@@ -726,32 +757,12 @@ export const refreshData = internalAction({
       });
       const priorNewTotal = newMonthRev.reduce((t, x) => t + x, 0);
       const newPhasing = priorNewTotal > 0 ? newMonthRev.map(x => x / priorNewTotal) : undefined;
-      const retained: string[] = [];
-      for (const [id] of baseByClinic) {
-        const lc = lifeOf.get(id);
-        if (lc && lc.life === "active" && (currentByClinic.get(id) ?? 0) > 0) retained.push(id);
-      }
-      retained.sort(
-        (a, b) =>
-          (baseByClinic.get(b)?.total ?? 0) - (baseByClinic.get(a)?.total ?? 0),
-      );
-      const topCount = Math.floor(retained.length / 5);
-      const retainedLabel = new Map<string, Cohort>();
-      retained.forEach((id, i) => {
-        retainedLabel.set(
-          id,
-          i < topCount ? "retained_top20" : "retained_rest",
-        );
-      });
-      // One label per clinic. Active new clinics are the "new" cohort (an Active tier in the trees); silent ones are
-      // churned and reactivated ones reactivated, whether they are new or older.
+      // One label per clinic (analytics/clinicLabels.ts). Active new clinics are the "new" cohort (an Active tier in the
+      // trees); silent ones are churned and reactivated ones reactivated, whether they are new or older. An active
+      // established clinic is "top 20%" when it is on this month's company list (rolling 12 months of revenue), the same
+      // list in every window and for every rep; before 2026-11 it was the top fifth of retained clinics by baseline revenue.
       const actualCohortOf = new Map<string, Cohort>();
-      for (const [id, lc] of lifeOf) {
-        actualCohortOf.set(
-          id,
-          lc.life === "churned" ? "churned" : lc.life === "reactivated" ? "reactivated" : lc.isNew ? "new" : (retainedLabel.get(id) ?? "retained_rest"),
-        );
-      }
+      for (const [id, lc] of lifeOf) actualCohortOf.set(id, labelOf(lc, currentList?.top.has(id) ?? false));
       const expectedCohortOf = actualCohortOf;
       const cohortOf = actualCohortOf;
 
@@ -1631,6 +1642,12 @@ export const refreshData = internalAction({
           medianGapBd: rhythmOf.get(clinic)?.medianGapBd,
           bdSinceLastOrder: rhythmOf.get(clinic)?.bdSinceLastOrder,
           signupDate: clinicSignupOf.get(clinic),
+          // Label per month-end (short codes, analytics/clinicLabels.ts) and this month's Top 20% standing.
+          labelAt: labelAtOf.get(clinic) ?? {},
+          t12Revenue: currentList?.t12.get(clinic) ?? 0,
+          tierRank: currentList?.rank.get(clinic),
+          tierCount: currentList?.count ?? 0,
+          tierLine: currentList?.line ?? 0,
         };
       });
 
@@ -2463,6 +2480,9 @@ export const refreshSnapshot = internalAction({
       // Lifetime (as-of-cutoff) revenue and fee/deduction total per clinic —
       // for the High Margin Bleed flag's lifetime deduction rate.
       const pLifetimeAsOf = ordersRows({ by: ["clinic_id"], start: EARLIEST, end: currentEnd, m: { rev: "revenue", ded: "deductions" } });
+      // Monthly Top 20% lists (rolling 12 months) and the dates a label is kept for (analytics/clinicLabels.ts).
+      const labelDays = labelDates(currentStart, currentEnd);
+      const pTierLists = tierListsFor(labelDays);
 
       // Year-to-date VA-only orders per clinic — paired with the existing
       // YTD order total (pClinicYtd) for the High VA Dependency share.
@@ -2753,21 +2773,26 @@ export const refreshSnapshot = internalAction({
         priorOf.set(String(r[`${TABLE}[clinic_id]`] ?? ""), { rev: num(r, "rev"), ord: num(r, "ord") });
       }
       const lifeYear = currentEnd.slice(0, 4);
+      const tierListOf = await pTierLists;
+      const currentList = tierListOf.get(listMonthOf(currentEnd));
+      const labelAtOf = new Map<string, Record<string, string>>();
       const lifeOf = new Map<string, Lifecycle>();
       const lifeScope = new Set<string>([...baseByClinic.keys(), ...currentByClinic.keys()]);
       for (const [lid, fo] of firstOrderOf) if (fo.startsWith(lifeYear)) lifeScope.add(lid);
       const newBaseRemoved = new Map<string, ClinicBase>();
       const ownHistoryAdded = new Map<string, ClinicBase>();
       for (const id of lifeScope) {
-        const lc = classifyClinic({
+        const lcInput = {
           firstOrder: firstOrderOf.get(id) ?? "",
           orderDates: orderDatesForLife.get(id) ?? [],
-          cutoff: currentEnd,
           hasBaselineRevenue: (baseByClinic.get(id)?.total ?? 0) > 0,
           hasWindowRevenue: (currentByClinic.get(id) ?? 0) > 0,
           priorRevenue: priorOf.get(id)?.rev ?? 0,
-        });
+        };
+        const lc = classifyClinic({ ...lcInput, cutoff: currentEnd });
         lifeOf.set(id, lc);
+        // The label at every month-end the window can show (and the one before it), same rules, other cutoffs.
+        labelAtOf.set(id, labelsFor({ ...lcInput, clinic: id }, labelDays, tierListOf));
         if (lc.isNew) {
           // New clinics carry no baseline: take whatever the baseline window gave them out of every baseline sum.
           const b0 = baseByClinic.get(id);
@@ -2797,32 +2822,12 @@ export const refreshSnapshot = internalAction({
       });
       const priorNewTotal = newMonthRev.reduce((t, x) => t + x, 0);
       const newPhasing = priorNewTotal > 0 ? newMonthRev.map(x => x / priorNewTotal) : undefined;
-      const retained: string[] = [];
-      for (const [id] of baseByClinic) {
-        const lc = lifeOf.get(id);
-        if (lc && lc.life === "active" && (currentByClinic.get(id) ?? 0) > 0) retained.push(id);
-      }
-      retained.sort(
-        (a, b) =>
-          (baseByClinic.get(b)?.total ?? 0) - (baseByClinic.get(a)?.total ?? 0),
-      );
-      const topCount = Math.floor(retained.length / 5);
-      const retainedLabel = new Map<string, Cohort>();
-      retained.forEach((id, i) => {
-        retainedLabel.set(
-          id,
-          i < topCount ? "retained_top20" : "retained_rest",
-        );
-      });
-      // One label per clinic. Active new clinics are the "new" cohort (an Active tier in the trees); silent ones are
-      // churned and reactivated ones reactivated, whether they are new or older.
+      // One label per clinic (analytics/clinicLabels.ts). Active new clinics are the "new" cohort (an Active tier in the
+      // trees); silent ones are churned and reactivated ones reactivated, whether they are new or older. An active
+      // established clinic is "top 20%" when it is on this month's company list (rolling 12 months of revenue), the same
+      // list in every window and for every rep; before 2026-11 it was the top fifth of retained clinics by baseline revenue.
       const actualCohortOf = new Map<string, Cohort>();
-      for (const [id, lc] of lifeOf) {
-        actualCohortOf.set(
-          id,
-          lc.life === "churned" ? "churned" : lc.life === "reactivated" ? "reactivated" : lc.isNew ? "new" : (retainedLabel.get(id) ?? "retained_rest"),
-        );
-      }
+      for (const [id, lc] of lifeOf) actualCohortOf.set(id, labelOf(lc, currentList?.top.has(id) ?? false));
       const expectedCohortOf = actualCohortOf;
       const cohortOf = actualCohortOf;
 
@@ -3684,6 +3689,12 @@ export const refreshSnapshot = internalAction({
           medianGapBd: rhythmOf.get(clinic)?.medianGapBd,
           bdSinceLastOrder: rhythmOf.get(clinic)?.bdSinceLastOrder,
           signupDate: clinicSignupOf.get(clinic),
+          // Label per month-end (short codes, analytics/clinicLabels.ts) and this month's Top 20% standing.
+          labelAt: labelAtOf.get(clinic) ?? {},
+          t12Revenue: currentList?.t12.get(clinic) ?? 0,
+          tierRank: currentList?.rank.get(clinic),
+          tierCount: currentList?.count ?? 0,
+          tierLine: currentList?.line ?? 0,
         };
       });
 

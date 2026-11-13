@@ -166,6 +166,14 @@ const schema = defineSchema({
     life: v.optional(v.string()),
     typicalGap: v.optional(v.number()),
     ownBaseline: v.optional(v.boolean()),
+    // Labels per window (2026-11, analytics/clinicLabels.ts): the label at each month-end the window can show, as short
+    // codes keyed by date; this month's company Top 20% list: the clinic's last-12-months revenue and rank, the list
+    // size and the smallest revenue still on it (same on every row).
+    labelAt: v.optional(v.record(v.string(), v.string())),
+    t12Revenue: v.optional(v.number()),
+    tierRank: v.optional(v.number()),
+    tierCount: v.optional(v.number()),
+    tierLine: v.optional(v.number()),
     // DEPRECATED, never written or read (Power BI Note import removed
     // 2026-10-12). Kept optional so rows from older refresh generations
     // still validate until they are pruned.

@@ -617,6 +617,26 @@ i.good { background: var(--vw-success); } i.watch { background: #f0a83c; } i.bad
   .rv-cc-stats, .rv-cc-tables { grid-column: 1 / -1; }
 }
 
+/* Standing (2026-11, analytics/clinicLabels.ts): why the clinic has its label, any move, the last 12 months of labels. */
+.rv-cc-standing { grid-column: 1 / -1; margin-top: 12px; padding: 12px 14px; border: 1px solid var(--vw-gray-10); border-radius: 8px; }
+.rv-standing-move { margin-top: 6px; font-size: 13px; font-weight: 500; color: var(--vw-ink); }
+.rv-standing-move.rv-move-up { color: var(--vw-success); }
+.rv-standing-move.rv-move-down { color: var(--vw-error); }
+.rv-standing-facts { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: 12px; line-height: 1.45; color: var(--vw-gray-60); }
+.rv-standing-hist { margin-top: 10px; }
+.rv-standing-strip { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 2px; height: 12px; max-width: 520px; }
+.rv-standing-strip i { display: block; border-radius: 2px; }
+.rv-standing-key { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; font-size: 11px; color: var(--vw-gray-60); }
+.rv-standing-key i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+
+/* Moves in the clinic list: a chip in the Cohort cell and a light row tint. */
+.rv-move { display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 999px; font-size: 11px; font-weight: 500; white-space: nowrap; }
+.rv-move-up { color: var(--vw-success); background: color-mix(in srgb, var(--vw-success) 12%, transparent); }
+.rv-move-down { color: var(--vw-error); background: color-mix(in srgb, var(--vw-error) 12%, transparent); }
+.rv-tr-up > td { background: color-mix(in srgb, var(--vw-success) 6%, transparent); }
+.rv-tr-down > td { background: color-mix(in srgb, var(--vw-error) 6%, transparent); }
+.rv-move-select { border-color: var(--vw-blue); }
+
 /* Inside a clinic list the table can be wider than the visible area; keep the expanded card at the visible width and in view. */
 .rca-drill .rca-table-wrap { container-type: inline-size; }
 .rca-drill .rca-table-wrap .rv-expand-card { width: calc(100cqw - 32px); position: sticky; left: 0; box-sizing: border-box; }

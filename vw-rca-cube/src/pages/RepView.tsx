@@ -2973,11 +2973,103 @@ function ClinicCardBody({ detail, periodId, winLabel }: { detail: Book; periodId
 
       </div>
 
+      <Standing d={detail} periodId={periodId} />
+
       <div className="rv-cc-tables">
       <RepClinicPortfolio clinic={detail.clinic} periodId={detail.fallback?.periodId ?? periodId} />
       <RepFootprintNote clinic={detail.clinic} />
       <RepCustomerTable clinic={detail.clinic} periodId={detail.fallback?.periodId ?? periodId} />
       </div>
+    </div>
+  );
+}
+
+/** Colour per label for the history strip and the move chips (analytics/clinicLabels.ts). */
+const LABEL_FILL: Record<string, string> = {
+  retained_top20: "var(--vw-blue)",
+  retained_rest: "var(--vw-gray-20)",
+  new: "var(--vw-success)",
+  reactivated: "var(--vw-warning)",
+  churned: "var(--vw-error)",
+};
+/** "since last month / quarter" for a window id; null for the whole window. */
+const sinceWord = (periodId: string) => (periodId === "all" ? null : periodId.startsWith("q:") ? "since last quarter" : "since last month");
+
+/** Move chip for the clinic list: ▲ / ▼ with the label it came from. */
+function MoveChip({ move, prev }: { move?: string | null; prev?: string | null }) {
+  if (move !== "up" && move !== "down") return null;
+  return (
+    <span className={`rv-move rv-move-${move}`} title={prev ? `Was ${COHORT[prev] ?? prev}` : undefined}>
+      {move === "up" ? "▲ Up" : "▼ Down"}
+    </span>
+  );
+}
+
+/**
+ * Why the clinic has its label, whether it moved, and its last 12 months of labels (2026-11, analytics/clinicLabels.ts).
+ * The Top 20% list is the company's for this month: last-12-months revenue, the same in every window and for every rep.
+ */
+function Standing({ d, periodId }: { d: Book; periodId: string }) {
+  const label = COHORT[d.cohort] ?? d.cohort;
+  const gap = typeof d.typicalGap === "number" && d.typicalGap > 0 ? Math.round(d.typicalGap) : null;
+  const limit = d.isNew || gap === null ? 45 : Math.max(45, 3 * gap);
+  const since = d.daysSinceLast as number | null;
+  const life =
+    d.cohort === "churned"
+      ? `No order for ${since ?? "?"} days; a clinic is churned after ${limit} days${gap ? ` (3× its usual ${gap}-day gap, at least 45)` : ""}.`
+      : d.cohort === "reactivated"
+        ? `Ordering again after a gap of ${limit}+ days; stays Reactivated for 90 days after the return.`
+        : d.cohort === "new"
+          ? `First order ${fmtD(d.firstOrder) || "this year"}.`
+          : gap && since !== null
+            ? since > gap
+              ? `Next order is overdue: usually every ${gap} days, last one ${since} days ago.`
+              : `Usually orders every ${gap} days; next expected in about ${gap - since} days.`
+            : null;
+  const onList = typeof d.tierRank === "number" && typeof d.tierCount === "number" && d.tierRank <= Math.ceil(d.tierCount * 0.2);
+  const t12 = typeof d.t12Revenue === "number" ? d.t12Revenue : null;
+  const tier =
+    t12 !== null && d.tierLine
+      ? onList
+        ? `On the Top 20% list: rank ${d.tierRank.toLocaleString("en-US")} of ${d.tierCount.toLocaleString("en-US")} · ${K(t12)} in the last 12 months · ${K(t12 - d.tierLine)} above the cut-off (${K(d.tierLine)})`
+        : `Not on the Top 20% list${d.tierRank ? `: rank ${d.tierRank.toLocaleString("en-US")} of ${d.tierCount.toLocaleString("en-US")}` : ""} · ${K(t12)} in the last 12 months · ${K(d.tierLine - t12)} short of the cut-off (${K(d.tierLine)})`
+      : null;
+  const word = sinceWord(periodId);
+  const hist: Array<{ date: string; cohort: string }> = d.labelHistory ?? [];
+  return (
+    <div className="rv-cc-standing">
+      <div className="rv-eyebrow">Standing · {label}</div>
+      {d.move === "up" || d.move === "down" ? (
+        <div className={`rv-standing-move rv-move-${d.move}`}>
+          {d.move === "up" ? "▲ Moved up" : "▼ Moved down"} from {COHORT[d.prevCohort] ?? d.prevCohort} to {label} {word ?? ""}
+        </div>
+      ) : d.move === "neutral" && d.prevCohort ? (
+        <div className="rv-standing-move">Was {COHORT[d.prevCohort] ?? d.prevCohort} {word ?? ""}</div>
+      ) : null}
+      <ul className="rv-standing-facts">
+        {life ? <li>{life}</li> : null}
+        {tier ? <li>{tier}</li> : null}
+        <li>
+          {typeof d.lifetimeRevenue === "number" ? `Lifetime revenue ${K(d.lifetimeRevenue)}` : null}
+          {d.sales ? `${typeof d.lifetimeRevenue === "number" ? " · " : ""}Rep ${d.sales}${d.teamLead && d.teamLead !== "—" ? ` (${d.teamLead}'s team)` : ""}` : null}
+        </li>
+      </ul>
+      {hist.length > 1 ? (
+        <div className="rv-standing-hist">
+          <div className="rv-standing-strip" role="img" aria-label="The clinic's label at each month-end">
+            {hist.map(h => (
+              <i key={h.date} title={`${fmtD(h.date)}: ${COHORT[h.cohort] ?? h.cohort}`} style={{ background: LABEL_FILL[h.cohort] ?? "var(--vw-gray-10)" }} />
+            ))}
+          </div>
+          <div className="rv-standing-key">
+            <span>{fmtD(hist[0].date)}</span>
+            {Object.entries(LABEL_FILL).map(([k, c]) => (
+              <span key={k}><i style={{ background: c }} />{COHORT[k] ?? k}</span>
+            ))}
+            <span>{fmtD(hist[hist.length - 1].date)}</span>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -3219,6 +3311,9 @@ export function FocusTable({
     name: string;
     state: string;
     cohort: string;
+    /** Label change since the window before (analytics/clinicLabels.ts): up / down / neutral, null when unchanged. */
+    move?: string | null;
+    prevCohort?: string | null;
     health?: string[];
     pstatus?: string[];
     actual: number;
@@ -3245,6 +3340,7 @@ export function FocusTable({
   const [term, setTerm] = useState("");
   const [health, setHealth] = useState("");
   const [pstatus, setPstatus] = useState("");
+  const [moved, setMoved] = useState<"" | "up" | "down" | "same">("");
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [limit, setLimit] = useState<number | null>(null);
@@ -3278,11 +3374,24 @@ export function FocusTable({
     for (const r of rows ?? []) for (const p of r.pstatus ?? []) m.set(p, (m.get(p) ?? 0) + 1);
     return [...m].sort((a, b) => b[1] - a[1]);
   }, [rows]);
+  // Moves since the window before (month vs month, quarter vs quarter); none for the whole window.
+  const moveCounts = useMemo(() => {
+    let up = 0, down = 0, any = false;
+    for (const r of rows ?? []) {
+      if (r.move !== undefined) any = true;
+      if (r.move === "up") up++;
+      else if (r.move === "down") down++;
+    }
+    return any && periodId !== "all" ? { up, down, same: (rows ?? []).length - up - down } : null;
+  }, [rows, periodId]);
+  const moveOk = (m: string | null | undefined) =>
+    !moved || (moved === "same" ? m !== "up" && m !== "down" : m === moved);
   const q = term.trim().toLowerCase();
   const filtered = (rows ?? []).filter(
     r =>
       (!health || (r.health ?? []).includes(health)) &&
       (!pstatus || (r.pstatus ?? []).includes(pstatus)) &&
+      moveOk(r.move) &&
       (!q || r.name.toLowerCase().includes(q)),
   );
   const sorted = sortKey
@@ -3348,9 +3457,22 @@ export function FocusTable({
                   <option key={v} value={v}>{v} ({n})</option>
                 ))}
               </select>
-              {health || pstatus || q ? (
+              {moveCounts ? (
+                <select
+                  className={`rca-select${moved ? " rv-move-select" : ""}`}
+                  value={moved}
+                  onChange={e => setMoved(e.target.value as typeof moved)}
+                  title={`Label change ${sinceWord(periodId) ?? ""}: up = Rest to Top 20% or back from Churned; down = Top 20% to Rest or into Churned`}
+                >
+                  <option value="">Change · any</option>
+                  <option value="up">▲ Moved up ({moveCounts.up})</option>
+                  <option value="down">▼ Moved down ({moveCounts.down})</option>
+                  <option value="same">No change ({moveCounts.same})</option>
+                </select>
+              ) : null}
+              {health || pstatus || q || moved ? (
                 <>
-                  <button type="button" className="rca-tab" onClick={() => { setHealth(""); setPstatus(""); setTerm(""); }}>
+                  <button type="button" className="rca-tab" onClick={() => { setHealth(""); setPstatus(""); setTerm(""); setMoved(""); }}>
                     clear
                   </button>
                   <span className="rca-filter-note">{filtered.length} of {rows.length} listed clinics</span>
@@ -3402,7 +3524,7 @@ export function FocusTable({
                     <Fragment key={r.clinic}>
                       <tr
                         data-tour={i === 0 ? "list-first-row" : undefined}
-                        className={`rv-focus-tr${expanded === r.clinic ? " is-open" : ""}`}
+                        className={`rv-focus-tr${expanded === r.clinic ? " is-open" : ""}${r.move === "up" || r.move === "down" ? ` rv-tr-${r.move}` : ""}`}
                         onClick={() => setExpanded(cur => (cur === r.clinic ? null : r.clinic))}
                       >
                         <td>{sortKey || limit ? i + 1 : r.rank}</td>
@@ -3411,7 +3533,7 @@ export function FocusTable({
                           {detail ? <small className="rv-rowdetail">{detail(r.clinic)}</small> : null}
                         </td>
                         <td>{r.state}</td>
-                        <td>{COHORT[r.cohort] ?? r.cohort}</td>
+                        <td>{COHORT[r.cohort] ?? r.cohort} <MoveChip move={r.move} prev={r.prevCohort} /></td>
                         {(extraCols ?? []).map(c => <td key={c.key} className="rca-num">{c.fmt(c.value(r.clinic))}</td>)}
                         {gap ? <td className="rca-num bad">{gap(r.clinic) > 0 ? gap(r.clinic).toFixed(1) : "—"}</td> : null}
                         <td className="rca-num">{r.baseline !== undefined ? K(r.baseline) : "—"}</td>

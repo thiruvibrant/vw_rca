@@ -223,3 +223,21 @@ Third question on the rep Business feed (`gzLossItem` in `analytics/feedItems.ts
 **Clinic list: sort and Top N (2026-10-22).** Every clinic list in the rep view (`FocusTable`) now sorts by any column (click a heading, click again to reverse; first click is A to Z for text, worst first for change columns, largest first for other numbers) and has Top 25 / Top 50 / All buttons that cut the sorted, filtered list. The Gut Zoomer Target Product Orders list also has an "orders short" column (expected minus ordered, the same numbers as the line under each clinic) and a "Top N = half the gap" button: the fewest clinics whose shortfalls add up to half of the list's total shortfall, with the numbers in the note beside it.
 
 **Declining table never built (found 2026-10-25, fixed):** after the 2026-10-22 deploy the stopped-clinic table filled (2,162 rows on the server) but `familyDecline` did not exist. `familyStops:rebuildDecline` reads each team's product mix through `families:context`, and the engine's snapshot builder did not register the `families` module, so the call failed with "unknown function families:context" and the builder logged "family decline failed" and carried on. `engine/builder.ts` now registers `families`. The Gut Zoomer card therefore listed no declining clinics and left out the "scorecard pulling-down list" reconciliation sentence. The "Open the clinics" button still showed wherever the team had stopped clinics (Kristina's team did), and was missing only for a team or rep with none. Needs the engine rebuilt and one refresh.
+
+## 21. Labels per window, the company Top 20% list, and moves (2026-11-13, Thiru's dev branch; needs Shyam's sign-off)
+Proposal with the data behind it: "Proposal: one definition of Top 20% clinics" (Claude doc shared by Thiru).
+- **Top 20% list:** worked out once a month. For month M, every clinic with revenue in the 12 complete months before M,
+  ranked by that revenue; the top 20% by count, rounded up. It is the same in every window and for every rep, and it
+  has no January reset. Before this, "Active · top 20%" was the top fifth of retained clinics by baseline revenue, and
+  the FZ button used this year's revenue (`fz_scores.is_top20_ytd`, unchanged until the Cube follows).
+- **Label per window:** each clinic's label is stored at every month-end of the last 12 months (and three months before
+  the window). A window shows the label as of its end: month and quarter by their end, weeks and days by their month.
+  The lifecycle rules are unchanged (section 1); only the cutoff moves.
+- **Moves:** the label vs the window before of the same kind (month vs month, quarter vs quarter). Up: Rest -> Top 20%,
+  or back from Churned. Down: Top 20% -> Rest, or into Churned. Other changes (New -> established, Reactivated ->
+  Active) are not highlighted. The clinic list shows a ▲/▼ chip and a filter; the clinic card shows a Standing block
+  (why the label, rank and distance to the list's cut-off, next expected order, 12-month strip).
+- Code: `analytics/clinicLabels.ts` (rules, tests in `scripts/clinic-labels.test.ts`), `refresh.ts` (monthly lists,
+  `clinicMeta.labelAt`), `clinics.ts drill()` (label for the window, `move`), `RepView.tsx` (`FocusTable`, `Standing`).
+- Known gap: the root-cause page's company tree (`bridge.ts`) still groups by the refresh window's label; the Overview,
+  team and rep trees follow the window.
