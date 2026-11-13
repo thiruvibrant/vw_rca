@@ -3178,8 +3178,11 @@ function RepFootprintNote({ clinic }: { clinic: string }) {
  * filter bar and search the main dashboard's clinic lists have, and clicking
  * a row expands/collapses the full clinic card (portfolio, providers,
  * digital footprint) in place instead of opening a separate modal. */
-function FocusTable({
+export function FocusTable({
   label,
+  eyebrow,
+  winLabel,
+  hideClose,
   rows,
   onClose,
   periodId,
@@ -3193,6 +3196,12 @@ function FocusTable({
   expandTop,
 }: {
   label: string;
+  /** Replaces "Clinics behind this number". */
+  eyebrow?: string;
+  /** Named in the expanded clinic card's empty message. */
+  winLabel?: string;
+  /** No close button: the table is a page, not a panel. */
+  hideClose?: boolean;
   /** Replaces the default line under the title. */
   sub?: string;
   /** Shown between the title and the filters (e.g. the FZ list's Zoomer buttons and KPIs). */
@@ -3299,17 +3308,19 @@ function FocusTable({
     <section className="rca-card rca-drill rv-focus-table">
       <div className="rca-drill-head">
         <div>
-          <div className="rca-eyebrow">Clinics behind this number</div>
+          <div className="rca-eyebrow">{eyebrow ?? "Clinics behind this number"}</div>
           <div className="rca-drill-title">{label}</div>
           <div className="rca-sub">
             {rows ? (sub ?? `${rows.length} clinics · same rows the number above is built from`) : "Loading clinic detail…"}
           </div>
         </div>
+        {hideClose ? null : (
         <div className="rca-drill-actions">
           <button type="button" className="rca-tab" onClick={onClose}>
             close
           </button>
         </div>
+        )}
       </div>
       {lead}
       {rows ? (
@@ -3419,7 +3430,7 @@ function FocusTable({
                         <tr className="rca-subrow">
                           <td colSpan={(gap ? 16 : 15) + (extraCols?.length ?? 0)}>
                             {expandTop?.(r.clinic)}
-                            <ExpandedClinicCard clinic={r.clinic} periodId={periodId} sales={sales} />
+                            <ExpandedClinicCard clinic={r.clinic} periodId={periodId} sales={sales} winLabel={winLabel} />
                           </td>
                         </tr>
                       ) : null}
@@ -4261,6 +4272,19 @@ function WeekPlan({ b, fams, plan, onPlan, sales, periodId }: { sales: string; p
   );
 }
 
+/** Columns for the "ordered Gut Zoomer last year, none this year" list: what each clinic ordered, from the fields the server adds to each row. */
+function lapsedCols(rows: unknown) {
+  const by = new Map((rows as Array<{ clinic: string; lapsedOrders?: number; lapsedLast?: string; lapsedOther?: number; lapsedRevenue?: number; lapsedRevenueThis?: number }>).map(r => [r.clinic, r]));
+  const date = (n: number) => (n ? `${String(n).slice(0, 4)}-${String(n).slice(4, 6)}-${String(n).slice(6)}` : "—");
+  return [
+    { key: "lapRev", label: "Revenue last year", title: "The clinic's total revenue last year, all products. Click to sort", value: (c: string) => by.get(c)?.lapsedRevenue ?? 0, fmt: (n: number) => K(n) },
+    { key: "lapRevNow", label: "Revenue this year", title: "The clinic's total revenue so far this year, all products. Click to sort", value: (c: string) => by.get(c)?.lapsedRevenueThis ?? 0, fmt: (n: number) => K(n) },
+    { key: "lapOrd", label: "GZ orders last year", title: "Gut Zoomer orders last year", value: (c: string) => by.get(c)?.lapsedOrders ?? 0, fmt: (n: number) => String(n) },
+    { key: "lapLast", label: "Last GZ order", title: "Date of the last Gut Zoomer order last year", value: (c: string) => Number((by.get(c)?.lapsedLast ?? "").replace(/-/g, "")), fmt: date },
+    { key: "lapOther", label: "Other orders this year", title: "Orders of other products so far this year (0 means nothing at all)", value: (c: string) => by.get(c)?.lapsedOther ?? 0, fmt: (n: number) => String(n) },
+  ];
+}
+
 /** Business feed tab (2026-10-20): the main Business Feed's own questions, cut to the rep's book. The cards are built on the
  * server by the same functions as the company feed (`feed:repQuestions`), so the wording matches; only the scope changes.
  * Shortlisted so far: "Is Toxin Zoomer offsetting the Total Tox downfall?" and "Which clinics are ready for the $400
@@ -4331,7 +4355,7 @@ function SignalsFeed({ sales, periodId, weekLabel, clinics, onFindGz }: { sales:
       {focus && focus.focus.startsWith("pair:") ? (
         <SwitchPanel periodId="all" periodLabel="analysis window" pair={focus.focus.slice(5)} limit={limit} onLimit={setLimit} onClose={() => setFocus(null)} sales={sales} />
       ) : focus ? (
-        <FocusTable label={focus.label} rows={rowsQ?.ready ? rowsQ.rows : null} onClose={() => setFocus(null)} periodId={periodId} sales={sales} />
+        <FocusTable label={focus.label} rows={rowsQ?.ready ? rowsQ.rows : null} onClose={() => setFocus(null)} periodId={periodId} sales={sales} extraCols={focus.focus === "gzlapsed" && rowsQ?.ready ? lapsedCols(rowsQ.rows) : undefined} />
       ) : null}
       <p className="rv-dim rv-small">{weekLabel ? `Clinic lists open for ${weekLabel}. ` : ""}More questions from the main Business Feed will be added here over time.</p>
     </div>

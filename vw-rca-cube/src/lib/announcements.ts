@@ -36,6 +36,42 @@ export const FZ_OVERVIEW_ANNOUNCEMENT_ID = "fz-cross-sell-overview";
 
 export const ANNOUNCEMENTS: Announcement[] = [
   {
+    id: "gz-lapsed",
+    date: "2026-11-11",
+    pages: ["overview", "rep"],
+    title: "Business Feed: clinics that ordered Gut Zoomer last year but not this year",
+    summary: "A new question on the Business Feed lists every clinic that ordered Gut Zoomer last year and has not ordered it so far this year.",
+    points: [
+      "Open the list for the clinics, with their Gut Zoomer orders last year and the date of the last one.",
+      "Each clinic shows its total revenue last year and so far this year (all products), so you can sort to the significant ones first. It also shows how many orders of other tests it has placed this year, so you can tell a clinic that dropped Gut Zoomer (still ordering other tests) from one that has gone entirely (0).",
+      "On the rep view it covers your own clinics; on the Overview it covers the company or the team lead you picked.",
+    ],
+    action: { kind: "tab", label: "Open the Business feed", tab: "feed" },
+  },
+  {
+    id: "overview-clinic-health",
+    date: "2026-11-11",
+    pages: ["overview"],
+    title: "Clinic health page",
+    summary: "A new Clinic health page in the left rail lists every clinic with all the columns of the scorecard clinic list, and opens the full clinic card with a click.",
+    points: [
+      "It has its own Week, Month, Quarter and Full window buttons with This / Last, separate from the Overview's. The window you pick is the one the list and every opened clinic card are measured in.",
+      "Filter by name, health or portfolio status, sort any column, and show the top 25 or 50. It follows the team lead filter in the left rail.",
+    ],
+  },
+  {
+    id: "overview-family-trend",
+    date: "2026-11-10",
+    pages: ["overview"],
+    title: "Trend chart on the product family cards",
+    summary: "Each product family card on the Overview has a small chart icon in its top right corner. It opens that family's weekly or monthly trend for the year so far.",
+    points: [
+      "Press the chart icon on a family card. Switch between Weekly and Monthly to see its orders over the year.",
+      "The chart always runs from 1 January of this year to today. It does not change with the Week / Month / Quarter / Full window buttons.",
+      "It follows the team lead filter in the left rail. Partial periods (the first or the current week or month) are drawn as hollow dots and left out of the line.",
+    ],
+  },
+  {
     id: "overview-this-last",
     date: "2026-11-10",
     pages: ["overview"],
