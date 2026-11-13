@@ -553,8 +553,6 @@ export function ExecutiveView({
         <h2 className="ev-headline" data-tour="ov-headline">{headline}</h2>
       </div>
 
-      <MomentumTile teamLead={teamLead || undefined} />
-
       <div className="ev-periodbar">
         <div className="ev-caption">
           {shortDate(p.start)} – {shortDate(p.end)} · {caption}
@@ -608,6 +606,8 @@ export function ExecutiveView({
           </div>
         </section>
       ) : null}
+
+      <MomentumTile teamLead={teamLead || undefined} />
 
       {sc.ready ? (
         <section data-tour="ov-pillars">

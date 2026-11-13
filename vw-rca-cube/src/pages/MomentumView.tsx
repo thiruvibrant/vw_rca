@@ -40,7 +40,7 @@ const day = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString("en-US"
 const int = (n: number) => Math.round(n).toLocaleString("en-US");
 
 /** Plain word, colour and icon for a light. A lasting rise is good news, so it is green. */
-function look(light: Light, side: Sign) {
+export function look(light: Light, side: Sign) {
   if (light === "red") return side > 0 ? { word: "Growing", color: GOOD, icon: "▲" } : { word: "Dropping", color: BAD, icon: "▼" };
   if (light === "amber") return { word: "Watch", color: WARN, icon: "●" };
   return { word: "Normal", color: GOOD, icon: "●" };
