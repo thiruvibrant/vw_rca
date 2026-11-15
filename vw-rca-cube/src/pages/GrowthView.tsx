@@ -334,6 +334,7 @@ export function GrowthView({ periods, teamLead }: { periods: ExecPeriod[]; teamL
       refGzOrdersYear: gutRaw.lists.refGzOrdersYear,
       stopped: gutRaw.lists.stopped.filter(r => clinicIds.has(r.clinic)), similar: gutRaw.lists.similar.filter(r => clinicIds.has(r.clinic)),
       lost: gutRaw.lists.lost.filter(r => clinicIds.has(r.clinic)), noGut: gutRaw.lists.noGut.filter(r => clinicIds.has(r.clinic)),
+      newPatients: gutRaw.lists.newPatients?.filter(r => clinicIds.has(r.clinic)), followUp: gutRaw.lists.followUp?.filter(r => clinicIds.has(r.clinic)),
     } } : gutRaw;
     return discover({ windowDays, book: book as never, rows, lapsed, fz: fzLite, whitespace: pgx?.whitespace ?? null, providers, gut }).map(d => resolve(d, (st?.opps?.[d.id] ?? {}) as Saved));
   }, [book, rows, lapsedRows, clinicIds, scope, windowDays, st?.opps, pgx, prov, fzLite, gutRaw]);

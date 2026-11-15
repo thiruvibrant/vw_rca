@@ -182,3 +182,18 @@ test("Thiru's gut lists become four opportunities with their own clinic-list col
   assert.equal(gb.n, 2);
   assert.ok(ds.every(d => d.pillar === "Product Growth" || !d.id.startsWith("gut-")));
 });
+
+test("lists 2 and 6 become opportunities when the patient lists are present", () => {
+  const i = inputs();
+  i.gut = { asOf: "2026-11-10", lists: { refGzOrdersYear: 0, stopped: [], similar: [], lost: [], noGut: [], patients: true,
+    newPatients: [{ clinic: "1", newA: 20, shareA: 0.6, newB: 10, shareB: 0.2 }],
+    followUp: [{ clinic: "2", due: 6, overdue: 4 }, { clinic: "3", due: 5, overdue: 5 }] } };
+  const ds = discover(i);
+  const np = ds.find(x => x.id === "gut-newpat")!;
+  assert.ok(Math.abs(np.value - 0.4 * 10 * 6 * 563) < 1e-6);
+  const fu = ds.find(x => x.id === "gut-followup")!;
+  assert.equal(fu.n, 2);
+  assert.equal(fu.value, 10 * 460);
+  assert.equal(fu.tgt, 9);
+  assert.equal(ds.find(x => x.id === "gut-stopped"), undefined);
+});

@@ -3,8 +3,9 @@
  *
  * Every list is made of top-20% clinics (by revenue, 1 Jan – 31 Oct 2026), and a clinic sits on the first list it fits, in this order:
  * 1 stopped, 2 new patients, 3 similar clinics, 6 follow-up, then 4 and 5. The months are fixed, as in the analysis, and all sit after the
- * February 2026 Gut Zoomer price rise so the price cannot explain a drop. Lists 2 and 6 need a patient id on orders (the Cube model has the
- * column but does not expose it as a dimension yet), so this file builds lists 1, 3, 4 and 5.
+ * February 2026 Gut Zoomer price rise so the price cannot explain a drop. Lists 2 and 6 count patients, through a pseudonymous patient key
+ * that the Cube model exposes (cube/model-vibrant, customer_rfm_segmented_orders.yml). Until that model change is deployed they are left out
+ * (`patients` is false) and lists 1, 3, 4 and 5 still build. The key is used here only to count per clinic and is never returned.
  *
  * `buildLists` is pure (maps in, rows out) and is what the tests cover; `gutLists` below pulls the maps from Cube.
  */
@@ -53,13 +54,19 @@ export type GutData = {
   ordersB: Map<string, number>;
   /** The clinic's main provider's credential group, 3-digit ZIP area and state. */
   peer: Map<string, { cred: string; zip3: string; state: string }>;
+  /** Lists 2 and 6, once the patient key is in the Cube model (otherwise absent). New patients first seen Mar–Jun (a) and Jul–Aug (b) 2026, and how many got a Gut Zoomer within 60 days. */
+  newPat?: Map<string, { a: number; aGz: number; b: number; bGz: number }>;
+  /** Patients whose latest Gut Zoomer is 150–240 days old (due) or 241–365 (overdue) at 10 Nov 2026, with no Gut Zoomer or Gut Baseline since. */
+  follow?: Map<string, { due: number; overdue: number }>;
 };
 
 export type StoppedRow = { clinic: string; gzA: number; gzARev: number; daysSince: number; otherOrders: number };
 export type SimilarRow = { clinic: string; cred: string; peers: number; peerScope: "zip" | "state"; clinicRate: number; peerRate: number; orders: number; gapRevenue: number };
 export type LostRow = { clinic: string; gz25: number; gz25Rev: number; fz: boolean };
 export type NoGutRow = { clinic: string; zoomers: string[]; hadGz: boolean };
-export type GutLists = { topCut: number; topN: number; /** Gut Zoomer orders a year of a top-20% clinic that orders it (Mar–Oct, annualized): how often a top clinic does gut testing. */ refGzOrdersYear: number; stopped: StoppedRow[]; similar: SimilarRow[]; lost: LostRow[]; noGut: NoGutRow[] };
+export type NewPatRow = { clinic: string; newA: number; shareA: number; newB: number; shareB: number };
+export type FollowRow = { clinic: string; due: number; overdue: number };
+export type GutLists = { patients: boolean; newPatients: NewPatRow[]; followUp: FollowRow[]; topCut: number; topN: number; /** Gut Zoomer orders a year of a top-20% clinic that orders it (Mar–Oct, annualized): how often a top clinic does gut testing. */ refGzOrdersYear: number; stopped: StoppedRow[]; similar: SimilarRow[]; lost: LostRow[]; noGut: NoGutRow[] };
 
 const day = (s: string) => Date.parse(`${s}T00:00:00Z`) / 86_400_000;
 const get = <T,>(m: Map<string, T>, k: string, d: T): T => m.get(k) ?? d;
@@ -83,6 +90,20 @@ export function buildLists(d: GutData): GutLists {
     if (get(d.gzA, c, 0) >= 5 && get(d.gzB, c, 0) === 0 && !((d.gzLast.get(c) ?? "") >= W.bStart)) {
       stopped.push({ clinic: c, gzA: get(d.gzA, c, 0), gzARev: get(d.gzARev, c, 0), daysSince: Math.round(day(W.checkEnd) - day(d.gzLast.get(c) ?? W.aEnd)), otherOrders: get(d.ordersB, c, 0) });
       taken.add(c);
+    }
+  }
+
+  // List 2: 10+ new patients in each period, 20%+ got a Gut Zoomer before, and the share fell by 15 points or more.
+  const newPatients: NewPatRow[] = [];
+  if (d.newPat) {
+    for (const [c, x] of d.newPat) {
+      if (!top.has(c) || taken.has(c) || x.a < 10 || x.b < 10) continue;
+      const sa = x.aGz / x.a;
+      const sb = x.bGz / x.b;
+      if (sa >= 0.2 && sa - sb >= 0.15) {
+        newPatients.push({ clinic: c, newA: x.a, shareA: sa, newB: x.b, shareB: sb });
+        taken.add(c);
+      }
     }
   }
 
@@ -121,6 +142,16 @@ export function buildLists(d: GutData): GutLists {
     }
   }
 
+  // List 6: 5+ patients due or overdue for a follow-up gut test, each counted once at the clinic of their latest Gut Zoomer.
+  const followUp: FollowRow[] = [];
+  if (d.follow) {
+    for (const [c, x] of d.follow) {
+      if (!top.has(c) || taken.has(c) || x.due + x.overdue < 5) continue;
+      followUp.push({ clinic: c, due: x.due, overdue: x.overdue });
+      taken.add(c);
+    }
+  }
+
   // List 4: a top-20% Gut Zoomer clinic of 2025 (5+ orders), no Gut Zoomer in 2026, still top 20% and VW-dependent, still ordering other Zoomers.
   const gzClinics = [...d.gz25Rev].filter(([c, r]) => r > 0 && get(d.gz25, c, 0) >= 5);
   const gzCut = topCut(gzClinics.map(([, r]) => r));
@@ -140,6 +171,9 @@ export function buildLists(d: GutData): GutLists {
   const ordering = [...top].filter(c => get(d.gzMarOct, c, 0) > 0);
   const refGzOrdersYear = ordering.length ? (ordering.reduce((t, c) => t + get(d.gzMarOct, c, 0), 0) / ordering.length) * (12 / 8) : 0;
   return {
+    patients: !!d.newPat && !!d.follow,
+    newPatients: newPatients.sort((a, b) => b.newA + b.newB - (a.newA + a.newB)),
+    followUp: followUp.sort((a, b) => b.due + b.overdue - (a.due + a.overdue)),
     topCut: cut,
     topN: top.size,
     refGzOrdersYear,
@@ -173,6 +207,65 @@ const toMap = (rows: Array<Record<string, unknown>>, k: string) => {
 const gzF = { member: `${O}.product_family`, operator: "contains" as const, values: ["Gut Zoomer"] };
 const fzF = { member: `${O}.product_family`, operator: "contains" as const, values: ["Foundation Zoomer"] };
 const baseF = { member: "order_tests.test_name", operator: "contains" as const, values: ["Gut Baseline"] };
+
+const pat = (r: Record<string, unknown>) => String(r[`${TABLE}[patient_id]`] ?? "");
+const dstr = (r: Record<string, unknown>, k: string) => String(r[`[${k}]`] ?? "").slice(0, 10);
+
+/**
+ * Lists 2 and 6 from the pseudonymous patient key. Returns null when the Cube model does not have it yet, so the other lists still work.
+ * New patient = first order at the clinic since 1 Mar 2026 with no order there from 1 Jan 2024 (a patient away for longer than that counts as new).
+ * "Got a Gut Zoomer" = a Gut Zoomer order within 60 days of the first visit (the analysis found 96% come on the very first order).
+ */
+export async function pullPatients(): Promise<{ newPat: NonNullable<GutData["newPat"]>; follow: NonNullable<GutData["follow"]> } | null> {
+  try {
+    const pk = ["clinic_id", "patient_id"];
+    const [older, newer, gzNew, gzAll, baseAll] = await Promise.all([
+      ordersRows({ by: pk, start: "2024-01-01", end: "2026-02-28", m: { n: "orders" } }),
+      ordersRows({ by: pk, start: W.aStart, end: "2026-08-31", m: { n: "orders", first: "first_order" } }),
+      ordersRows({ by: pk, start: W.aStart, end: W.bEnd, m: { n: "orders", first: "first_order" }, filters: [gzF] }),
+      ordersRows({ by: pk, start: "2025-11-10", end: W.checkEnd, m: { n: "orders", last: "last_order" }, filters: [gzF] }),
+      ordersRows({ by: ["patient_id"], start: "2025-11-10", end: W.checkEnd, m: { n: "orders", last: "last_order" }, filters: [baseF] }),
+    ]);
+    const old = new Set(older.filter(r => pat(r)).map(r => `${clin(r)}|${pat(r)}`));
+    const gzFirst = new Map(gzNew.filter(r => pat(r)).map(r => [`${clin(r)}|${pat(r)}`, dstr(r, "first")]));
+    const newPat = new Map<string, { a: number; aGz: number; b: number; bGz: number }>();
+    for (const r of newer) {
+      const key = `${clin(r)}|${pat(r)}`;
+      if (!pat(r) || old.has(key)) continue;
+      const first = dstr(r, "first");
+      if (!first) continue;
+      const g = gzFirst.get(key);
+      const got = g !== undefined && g >= first && day(g) - day(first) <= 60;
+      const x = newPat.get(clin(r)) ?? { a: 0, aGz: 0, b: 0, bGz: 0 };
+      if (first <= W.aEnd) { x.a += 1; if (got) x.aGz += 1; }
+      else if (first >= W.bStart) { x.b += 1; if (got) x.bGz += 1; }
+      newPat.set(clin(r), x);
+    }
+    // Each patient once, at the clinic of their latest Gut Zoomer; no Gut Zoomer or Gut Baseline since.
+    const latest = new Map<string, { clinic: string; date: string }>();
+    for (const r of gzAll) {
+      const p = pat(r);
+      const date = dstr(r, "last");
+      if (!p || !date) continue;
+      const cur = latest.get(p);
+      if (!cur || date > cur.date) latest.set(p, { clinic: clin(r), date });
+    }
+    const baseLast = new Map(baseAll.filter(r => pat(r)).map(r => [pat(r), dstr(r, "last")]));
+    const follow = new Map<string, { due: number; overdue: number }>();
+    for (const [p, v] of latest) {
+      if ((baseLast.get(p) ?? "") >= v.date) continue;
+      const days = day(W.checkEnd) - day(v.date);
+      if (days < 150 || days > 365) continue;
+      const x = follow.get(v.clinic) ?? { due: 0, overdue: 0 };
+      if (days <= 240) x.due += 1;
+      else x.overdue += 1;
+      follow.set(v.clinic, x);
+    }
+    return { newPat, follow };
+  } catch {
+    return null;
+  }
+}
 
 /** Pulls the maps from Cube. About fifteen queries; the result is cached for the day. */
 async function pull(): Promise<GutData> {
@@ -229,18 +322,21 @@ async function pull(): Promise<GutData> {
     const w = where.get(m.id);
     peer.set(c, { cred: credentialGroup(m.cred), zip3: (w?.zip ?? "").replace(/\D/g, "").slice(0, 3), state: (w?.state ?? "").toUpperCase() });
   }
+  const patients = await pullPatients();
   return {
     rev: toMap(rev, "rev"), vwRev: toMap(vw, "rev"), gzA: toMap(gzA, "n"), gzB: toMap(gzB, "n"), gzARev: toMap(gzA, "rev"), gzLast,
     gz25: toMap(gz25, "n"), gz25Rev: toMap(gz25, "rev"), gz26: new Set([...toMap(gz26, "n")].filter(([, n]) => n > 0).map(([c]) => c)),
     fz26: new Set([...toMap(fz26, "n")].filter(([, n]) => n > 0).map(([c]) => c)), baseline26: new Set([...toMap(base26, "n")].filter(([, n]) => n > 0).map(([c]) => c)),
     zoomers26: new Map([...zoomers].map(([c, s]) => [c, [...s].sort()])), ordersMarOct: toMap(ordMarOct, "n"), gzMarOct: toMap(gzMarOct, "n"), ordersB: toMap(ordB, "n"), peer,
+    newPat: patients?.newPat,
+    follow: patients?.follow,
   };
 }
 
 export const gutLists = gatedAction({
   args: {},
   handler: async (ctx): Promise<{ ready: true; asOf: string; lists: GutLists; names: Record<string, { name: string; state: string; sales: string }> }> => {
-    const key = `${viewerCfgKey(ctx) ?? ""}gutl1|${new Date().toISOString().slice(0, 10)}`;
+    const key = `${viewerCfgKey(ctx) ?? ""}gutl2|${new Date().toISOString().slice(0, 10)}`;
     const hit: string | null = await ctx.runQuery(internal.ingest.getCache, { key });
     if (hit) return JSON.parse(hit);
     const lists = buildLists(await pull());

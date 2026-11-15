@@ -68,6 +68,10 @@ export type GutLite = {
     similar: Array<{ clinic: string; cred: string; peers: number; peerScope: "zip" | "state"; clinicRate: number; peerRate: number; orders: number; gapRevenue: number }>;
     lost: Array<{ clinic: string; gz25: number; gz25Rev: number; fz: boolean }>;
     noGut: Array<{ clinic: string; zoomers: string[]; hadGz: boolean }>;
+    /** Lists 2 and 6; empty until the patient key is in the Cube model. */
+    patients?: boolean;
+    newPatients?: Array<{ clinic: string; newA: number; shareA: number; newB: number; shareB: number }>;
+    followUp?: Array<{ clinic: string; due: number; overdue: number }>;
   };
 };
 
@@ -302,6 +306,41 @@ export function discover(inp: Inputs): OppDef[] {
           { key: "gzOth", label: "Orders Jul–Oct (any test)", kind: "int", values: m(L.stopped, (r: { otherOrders: number }) => r.otherOrders) },
         ],
       });
+    const NP = L.newPatients ?? [];
+    if (NP.length) {
+      const per = (r: { shareA: number; shareB: number; newB: number }) => (r.shareA - r.shareB) * r.newB * 6 * 563;
+      out.push({
+        id: "gut-newpat", name: "Win back Gut Zoomer for new patients", pillar: "Product Growth", source: "supporting", segment: "Top 20% clinics where far fewer new patients get a Gut Zoomer than in spring",
+        indicator: "New patients getting a Gut Zoomer", indicatorValue: `${NP.length} clinics · ${Math.round((sum(NP, r => r.shareA * r.newA) / Math.max(1, sum(NP, r => r.newA))) * 100)}% to ${Math.round((sum(NP, r => r.shareB * r.newB) / Math.max(1, sum(NP, r => r.newB))) * 100)}%`, metric: "Target Product Orders", from: SRC,
+        clinicIds: NP.map(r => r.clinic), n: NP.length, cur: 0, tgt: 50, rateLabel: "share of the drop in new-patient Gut Zoomer orders won back", value: mean(NP.map(per)),
+        observation: `${NP.length} top clinics had 10 or more new patients in each period, 20% or more of the March–June ones got a Gut Zoomer, and the share fell by 15 points or more for those first seen in July–August. Both groups are after the price rise.`,
+        intervention: "Ask the clinic what changed in how it sees new patients.",
+        evidence: "New patient = first order at the clinic since 1 Mar 2026 with none there since 1 Jan 2024. Got a Gut Zoomer = within 60 days of the first visit. The value is the drop in share times new patients a year at the usual $563 Gut Zoomer price; the share won back is an assumption.", ready: "ready", defaultOwner: "Sales", annual: sum(NP, per),
+        cols: [
+          { key: "npA", label: "New patients Mar–Jun", kind: "int", values: m(NP, (r: { newA: number }) => r.newA) },
+          { key: "npSa", label: "Got a GZ Mar–Jun", kind: "pct", values: m(NP, (r: { shareA: number }) => r.shareA * 100) },
+          { key: "npB", label: "New patients Jul–Aug", kind: "int", values: m(NP, (r: { newB: number }) => r.newB) },
+          { key: "npSb", label: "Got a GZ Jul–Aug", kind: "pct", values: m(NP, (r: { shareB: number }) => r.shareB * 100) },
+        ],
+      });
+    }
+    const FU = L.followUp ?? [];
+    if (FU.length) {
+      const due = sum(FU, r => r.due);
+      const over = sum(FU, r => r.overdue);
+      out.push({
+        id: "gut-followup", name: "Offer Gut Baseline as the follow-up test", pillar: "Product Growth", source: "supporting", segment: "Top 20% clinics with 5+ patients due or overdue for a follow-up gut test",
+        indicator: "Follow-up due", indicatorValue: `${FU.length} clinics · ${due.toLocaleString("en-US")} due, ${over.toLocaleString("en-US")} overdue`, metric: "Target Product Orders", from: SRC,
+        clinicIds: FU.map(r => r.clinic), n: FU.length, cur: 0, tgt: 9, rateLabel: "share of due and overdue patients who get a follow-up gut test", value: mean(FU.map(r => (r.due + r.overdue) * 460)),
+        observation: `${FU.length} top clinics have ${(due + over).toLocaleString("en-US")} patients whose latest Gut Zoomer is 150–365 days old with no Gut Zoomer or Gut Baseline since. Repeat gut tests almost never come before 120 days, and only about 9% of Gut Zoomer patients ever repeat.`,
+        intervention: "Talk in clinic-level counts (never name or describe a patient) and ask how the clinic checks whether a gut protocol worked. Gut Baseline covers the main markers at a lower price.",
+        evidence: "Due = 150–240 days since the latest Gut Zoomer, overdue = 241–365, to 10 Nov 2026. The default rate is the observed share who repeat; the value is every due and overdue patient at the $460 Gut Baseline price, a one-time amount, not a yearly run rate. The count of patients with a red result is not available here.", ready: "ready", defaultOwner: "Sales", annual: sum(FU, r => (r.due + r.overdue) * 460),
+        cols: [
+          { key: "fuDue", label: "Patients due (150–240d)", kind: "int", values: m(FU, (r: { due: number }) => r.due) },
+          { key: "fuOver", label: "Patients overdue (241–365d)", kind: "int", values: m(FU, (r: { overdue: number }) => r.overdue) },
+        ],
+      });
+    }
     if (L.similar.length)
       out.push({
         id: "gut-similar", name: "Close the Gut Zoomer gap to similar clinics", pillar: "Product Growth", source: "supporting", segment: "Top 20% clinics ordering Gut Zoomer at under half the rate of similar clinics",

@@ -89,3 +89,40 @@ test("the reference rate is the yearly Gut Zoomer orders of a top clinic that or
   d.gzMarOct.set("3", 40); // not a top clinic: ignored
   assert.equal(buildLists(d).refGzOrdersYear, 9);
 });
+
+test("list 2: new patients getting a Gut Zoomer fell, and a clinic on list 1 is not on list 2", () => {
+  const d = base();
+  d.newPat = new Map([
+    ["10", { a: 20, aGz: 12, b: 15, bGz: 5 }], // 60% then 33%: drop of 27 points
+    ["9", { a: 20, aGz: 12, b: 15, bGz: 10 }], // 60% then 67%: no drop
+    ["8", { a: 20, aGz: 12, b: 15, bGz: 5 }], // not a top clinic
+  ]);
+  d.follow = new Map();
+  const l = buildLists(d);
+  assert.deepEqual(l.newPatients.map(r => r.clinic), ["10"]);
+  assert.ok(Math.abs(l.newPatients[0].shareA - 0.6) < 1e-9);
+  // a clinic that is on list 1 (stopped) never reaches list 2
+  d.gzA.set("10", 6); d.gzARev.set("10", 3000); d.gzLast.set("10", "2026-06-20");
+  const l2 = buildLists(d);
+  assert.deepEqual(l2.stopped.map(r => r.clinic), ["10"]);
+  assert.deepEqual(l2.newPatients, []);
+  assert.equal(l2.patients, true);
+});
+
+test("list 6: 5+ patients due or overdue, after lists 1 to 3, before lists 4 and 5", () => {
+  const d = base();
+  d.newPat = new Map();
+  d.follow = new Map([["10", { due: 3, overdue: 4 }], ["9", { due: 2, overdue: 1 }]]);
+  d.gz25.set("10", 8); d.gz25Rev.set("10", 4000); d.zoomers26.set("10", ["Hormone Zoomer"]);
+  const l = buildLists(d);
+  assert.deepEqual(l.followUp.map(r => r.clinic), ["10"]);
+  assert.deepEqual(l.lost, []); // 10 is on list 6 first
+  assert.deepEqual(l.noGut.map(r => r.clinic), ["9"]);
+});
+
+test("without the patient key, lists 2 and 6 are left out and the others still build", () => {
+  const l = buildLists(base());
+  assert.equal(l.patients, false);
+  assert.deepEqual(l.newPatients, []);
+  assert.deepEqual(l.followUp, []);
+});
