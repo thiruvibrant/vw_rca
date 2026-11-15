@@ -59,7 +59,23 @@ export type WhitespaceLite = { pairs: number; ids: string[]; valuePerPair: numbe
 /** Clinics with several providers where some have stopped ordering (the engine's growth:providers). */
 export type ProviderLite = { clinic: string; providers: number; active: number; dormant: number; dormantRevenue: number };
 
+/** Thiru's Gut Zoomer lists (the engine's gutLists:gutLists). */
+export type GutLite = {
+  asOf: string;
+  lists: {
+    refGzOrdersYear: number;
+    stopped: Array<{ clinic: string; gzA: number; gzARev: number; daysSince: number; otherOrders: number }>;
+    similar: Array<{ clinic: string; cred: string; peers: number; peerScope: "zip" | "state"; clinicRate: number; peerRate: number; orders: number; gapRevenue: number }>;
+    lost: Array<{ clinic: string; gz25: number; gz25Rev: number; fz: boolean }>;
+    noGut: Array<{ clinic: string; zoomers: string[]; hadGz: boolean }>;
+  };
+};
+
+/** An extra number column for the clinic list behind an opportunity: one value per clinic. */
+export type OppCol = { key: string; label: string; title?: string; kind: "int" | "money" | "pct" | "days"; values: Record<string, number> };
+
 export type Inputs = {
+  gut?: GutLite | null;
   windowDays: number;
   book: BookLite | null;
   rows: ClinicLite[] | null;
@@ -95,6 +111,8 @@ export type OppDef = {
   observation: string;
   intervention: string;
   evidence: string;
+  /** Extra columns for the clinic list. */
+  cols?: OppCol[];
   ready: Ready;
   /** Header and cell text for the extra column in the clinic list. */
   defaultOwner: string;
@@ -263,6 +281,68 @@ export function discover(inp: Inputs): OppDef[] {
       intervention: "Ask the rep to re-introduce the program to the dormant providers on the next clinic visit.",
       evidence: "Providers ordering per clinic over 24 months against the last 90 days. The share that return is an assumption to validate.", ready: "ready", defaultOwner: "Sales", annual: rev,
     });
+  }
+  const gut = inp.gut;
+  if (gut) {
+    const L = gut.lists;
+    const SRC = "Thiru's Gut Zoomer growth lists (11 Nov 2026), computed from the order data";
+    const m = (rows: Array<{ clinic: string }>, f: (r: never) => number) => Object.fromEntries(rows.map(r => [r.clinic, f(r as never)]));
+    const mean = (xs: number[]) => (xs.length ? sum(xs, x => x) / xs.length : 0);
+    if (L.stopped.length)
+      out.push({
+        id: "gut-stopped", name: "Win back clinics that stopped ordering Gut Zoomer", pillar: "Product Growth", source: "supporting", segment: "Top 20% clinics with 5+ Gut Zoomer in Mar–Jun 2026 and none since July",
+        indicator: "Stopped ordering Gut Zoomer", indicatorValue: `${L.stopped.length} clinics · ${L.stopped.filter(r => r.otherOrders > 0).length} still order other tests`, metric: "Target Product Orders", from: SRC,
+        clinicIds: L.stopped.map(r => r.clinic), n: L.stopped.length, cur: 0, tgt: 25, rateLabel: "share ordering Gut Zoomer again", value: mean(L.stopped.map(r => r.gzARev * 3)),
+        observation: `${L.stopped.length} of the top clinics ordered Gut Zoomer 5 or more times between March and June 2026 and not once since July. Both periods are after the February price rise, so price does not explain the drop. ${L.stopped.filter(r => r.otherOrders > 0).length} still order other tests.`,
+        intervention: "For clinics that still order other tests: ask whether something changed in how they check gut health. For clinics that stopped all orders: ask whether there is anything to fix.",
+        evidence: "Mar–Jun against Jul–Oct 2026 orders, checked to 10 Nov. The value is each clinic's Mar–Jun Gut Zoomer revenue carried to a year; the share that restart is an assumption.", ready: "ready", defaultOwner: "Sales", annual: sum(L.stopped, r => r.gzARev * 3),
+        cols: [
+          { key: "gzA", label: "GZ orders Mar–Jun", kind: "int", values: m(L.stopped, (r: { gzA: number }) => r.gzA) },
+          { key: "gzDays", label: "Days since last GZ", title: "To 10 Nov 2026. Over 180 is late: repeat orders usually come after 120 days.", kind: "days", values: m(L.stopped, (r: { daysSince: number }) => r.daysSince) },
+          { key: "gzOth", label: "Orders Jul–Oct (any test)", kind: "int", values: m(L.stopped, (r: { otherOrders: number }) => r.otherOrders) },
+        ],
+      });
+    if (L.similar.length)
+      out.push({
+        id: "gut-similar", name: "Close the Gut Zoomer gap to similar clinics", pillar: "Product Growth", source: "supporting", segment: "Top 20% clinics ordering Gut Zoomer at under half the rate of similar clinics",
+        indicator: "Gut Zoomer rate against similar clinics", indicatorValue: `${L.similar.length} clinics · ${money(sum(L.similar, r => r.gapRevenue))} a year to the peers' rate`, metric: "Target Product Orders", from: SRC,
+        clinicIds: L.similar.map(r => r.clinic), n: L.similar.length, cur: 0, tgt: 25, rateLabel: "share of the gap to the peers' Gut Zoomer rate closed", value: mean(L.similar.map(r => r.gapRevenue)),
+        observation: `${L.similar.length} top clinics have at least 20 orders and some Gut Zoomer, yet their Gut Zoomer share of orders is under half that of similar clinics (same credential, same ZIP area, or the same state with fewer than 5 in the area). At least half of those similar clinics order it.`,
+        intervention: "Show how similar clinics use Gut Zoomer: use their share of orders as the reference, not a quota.",
+        evidence: "Mar–Oct 2026 Gut Zoomer orders against all orders. Credential is the main provider's, grouped (MD, DC, NP, ND, DO, RD, other). The gap is the difference in rate times the clinic's orders and Gut Zoomer order value, carried to a year.", ready: "ready", defaultOwner: "Sales", annual: sum(L.similar, r => r.gapRevenue),
+        cols: [
+          { key: "gsRate", label: "GZ share of orders", title: "Gut Zoomer orders as a share of all orders, Mar–Oct 2026", kind: "pct", values: m(L.similar, (r: { clinicRate: number }) => r.clinicRate * 100) },
+          { key: "gsPeer", label: "Similar clinics' share", title: "The same share across similar clinics (same credential, same ZIP area or state)", kind: "pct", values: m(L.similar, (r: { peerRate: number }) => r.peerRate * 100) },
+          { key: "gsN", label: "Similar clinics", kind: "int", values: m(L.similar, (r: { peers: number }) => r.peers) },
+        ],
+      });
+    if (L.lost.length)
+      out.push({
+        id: "gut-lost", name: "Win back big Gut Zoomer clinics of 2025", pillar: "Product Growth", source: "supporting", segment: "Top 2025 Gut Zoomer clinics with none in 2026, still top clinics",
+        indicator: "Big Gut Zoomer clinic in 2025, none in 2026", indicatorValue: `${L.lost.length} clinics · ${money(sum(L.lost, r => r.gz25Rev))} Gut Zoomer revenue in 2025`, metric: "Target Product Orders", from: SRC,
+        clinicIds: L.lost.map(r => r.clinic), n: L.lost.length, cur: 0, tgt: 15, rateLabel: "share ordering Gut Zoomer or Gut Baseline again", value: mean(L.lost.map(r => r.gz25Rev)),
+        observation: `${L.lost.length} clinics were among the top 20% for Gut Zoomer in 2025 (5+ orders), have none in 2026 to 10 Nov, are still top clinics with at least half their revenue from VW tests, and still order other Zoomers. ${L.lost.filter(r => r.fz).length} order Foundation Zoomer.`,
+        intervention: "If price is a factor, offer Gut Baseline at the lower price, which covers the key markers.",
+        evidence: "2025 Gut Zoomer against 2026 to 10 Nov. Their 2025 Gut Zoomer was at the old price, so price may be part of the story. The share that return is an assumption.", ready: "ready", defaultOwner: "Sales", annual: sum(L.lost, r => r.gz25Rev),
+        cols: [
+          { key: "glOrd", label: "GZ orders 2025", kind: "int", values: m(L.lost, (r: { gz25: number }) => r.gz25) },
+          { key: "glRev", label: "GZ revenue 2025", title: "Revenue of 2025 orders that included a Gut Zoomer", kind: "money", values: m(L.lost, (r: { gz25Rev: number }) => r.gz25Rev) },
+          { key: "glFz", label: "Orders FZ in 2026", title: "1 if the clinic ordered Foundation Zoomer in 2026", kind: "int", values: m(L.lost, (r: { fz: boolean }) => (r.fz ? 1 : 0)) },
+        ],
+      });
+    if (L.noGut.length && L.refGzOrdersYear > 0)
+      out.push({
+        id: "gut-baseline", name: "Introduce Gut Baseline to top clinics with no gut or Foundation testing", pillar: "Product Growth", source: "supporting", segment: "Top 20% VW-dependent clinics with no Foundation Zoomer, Gut Zoomer or Gut Baseline in 2026",
+        indicator: "No FZ, GZ or Gut Baseline in 2026", indicatorValue: `${L.noGut.length} clinics · ${L.noGut.filter(r => r.zoomers.length > 0).length} order other Zoomers`, metric: "Target Product Orders", from: SRC,
+        clinicIds: L.noGut.map(r => r.clinic), n: L.noGut.length, cur: 0, tgt: 5, rateLabel: "share starting Gut Baseline", value: L.refGzOrdersYear * 460,
+        observation: `${L.noGut.length} top clinics rely on VW tests yet order no Foundation Zoomer, Gut Zoomer or Gut Baseline in 2026. ${L.noGut.filter(r => r.zoomers.length > 0).length} order other Zoomers, and ${L.noGut.filter(r => r.hadGz).length} ordered Gut Zoomer in 2025.`,
+        intervention: "Lead with Gut Baseline: the lower price ($460) and the key markers. Foundation Zoomer is the next step, because its gut results already lead into Gut Zoomer.",
+        evidence: "2026 orders to 10 Nov. The value is a top Gut Zoomer clinic's yearly Gut Zoomer orders at the Gut Baseline price, so it is what a clinic would spend if it tested as often as the top clinics that do; the share that start is an assumption. Gut Baseline is new, so its own adoption is not measured yet.", ready: "ready", defaultOwner: "Sales + Marketing", annual: L.noGut.length * L.refGzOrdersYear * 460,
+        cols: [
+          { key: "gbZ", label: "Other Zoomers in 2026", title: "How many other Zoomer families the clinic ordered in 2026", kind: "int", values: m(L.noGut, (r: { zoomers: string[] }) => r.zoomers.length) },
+          { key: "gbG", label: "Ordered GZ before 2026", title: "1 if the clinic ordered Gut Zoomer in 2025", kind: "int", values: m(L.noGut, (r: { hadGz: boolean }) => (r.hadGz ? 1 : 0)) },
+        ],
+      });
   }
   if (inp.rows) {
     const rows = inp.rows;

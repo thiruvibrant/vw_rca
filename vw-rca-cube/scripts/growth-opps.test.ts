@@ -156,3 +156,29 @@ test("providers: clinics with 3+ providers in two years where 2+ stopped and the
   assert.equal(d.n, 1);
   assert.equal(d.value, 1500);
 });
+
+test("Thiru's gut lists become four opportunities with their own clinic-list columns", () => {
+  const i = inputs();
+  i.gut = {
+    asOf: "2026-11-10",
+    lists: {
+      refGzOrdersYear: 30,
+      stopped: [{ clinic: "1", gzA: 6, gzARev: 3000, daysSince: 150, otherOrders: 4 }, { clinic: "2", gzA: 5, gzARev: 1000, daysSince: 200, otherOrders: 0 }],
+      similar: [{ clinic: "3", cred: "NP", peers: 8, peerScope: "zip", clinicRate: 0.05, peerRate: 0.39, orders: 100, gapRevenue: 20000 }],
+      lost: [{ clinic: "7", gz25: 8, gz25Rev: 4000, fz: true }],
+      noGut: [{ clinic: "8", zoomers: ["Hormone Zoomer"], hadGz: true }, { clinic: "9", zoomers: [], hadGz: false }],
+    },
+  };
+  const ds = discover(i);
+  const stopped = ds.find(x => x.id === "gut-stopped")!;
+  assert.equal(stopped.n, 2);
+  assert.equal(stopped.value, 6000); // mean of Mar–Jun revenue (3000, 1000) × 3
+  assert.equal(stopped.cols?.[2].values["2"], 0);
+  assert.equal(resolve(stopped).incr, 2 * 0.25 * 6000);
+  assert.equal(ds.find(x => x.id === "gut-similar")!.value, 20000);
+  assert.equal(ds.find(x => x.id === "gut-lost")!.cols?.[2].values["7"], 1);
+  const gb = ds.find(x => x.id === "gut-baseline")!;
+  assert.equal(gb.value, 30 * 460);
+  assert.equal(gb.n, 2);
+  assert.ok(ds.every(d => d.pillar === "Product Growth" || !d.id.startsWith("gut-")));
+});

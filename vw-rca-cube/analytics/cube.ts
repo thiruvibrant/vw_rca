@@ -259,6 +259,7 @@ const ORDER_DIMS: Record<string, string> = {
   charge_method: "charge_method",
   hubspot_id: "hubspot_id",
   sample_test_type_v2: "sample_test_type_v2",
+  customer_credential: "customer_credential",
 };
 const LEGACY_TABLE = "customer_rfm_segmented_orders";
 const LEGACY_FAMILY = "fact_order_tests_enriched[product_family]";

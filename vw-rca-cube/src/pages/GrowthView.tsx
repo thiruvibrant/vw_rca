@@ -4,7 +4,7 @@ import { api } from "@/lib/api";
 import { useRcaAction, useRcaQuery } from "@/lib/rca";
 import {
   DEFAULT_WEIGHTS, DIMENSIONS, annualFactor, MATRIX, PILLARS, STATUSES, THRESHOLD, WEIGHT_KEYS, discover, overlapAdjusted, priority, recommendation, regionSplit, resolve,
-  type ClinicLite, type FzLite, type LapsedLite, type ProviderLite, type WhitespaceLite, type Opp, type Pillar, type Saved, type Status, type Weights,
+  type ClinicLite, type FzLite, type GutLite, type LapsedLite, type ProviderLite, type WhitespaceLite, type Opp, type Pillar, type Saved, type Status, type Weights,
 } from "@/lib/growthOpps";
 import { geoKeyOf } from "../../analytics/geoKey";
 import { pw } from "./gatePw";
@@ -21,6 +21,8 @@ type Row = { opp: Opp; score: number; rec: ReturnType<typeof recommendation> | "
 
 /** The clinics behind one opportunity, in the scorecard's clinic list (same columns, same expandable clinic card). */
 function OppClinics({ opp, scope, onClose }: { opp: Opp; scope: string; onClose: () => void }) {
+  const fmts = { int: (n: number) => int(n), money: (n: number) => money(n), pct: (n: number) => `${n.toFixed(1)}%`, days: (n: number) => `${int(n)}d` };
+  const extraCols = (opp.cols ?? []).map(c => ({ key: c.key, label: c.label, title: c.title, value: (clinic: string) => c.values[clinic] ?? 0, fmt: fmts[c.kind] }));
   const q = useRcaQuery(api.repView.rowsByFocus, { password: pw(), periodId: "all", sales: scope, focus: `ids:${opp.clinicIds.slice(0, 1500).join(",")}` });
   return (
     <FocusTable
@@ -29,6 +31,7 @@ function OppClinics({ opp, scope, onClose }: { opp: Opp; scope: string; onClose:
       eyebrow="Clinics behind this opportunity"
       sub={`${opp.indicatorValue}. The same list the scorecard opens, with the expandable clinic card.`}
       rows={q?.ready ? q.rows : null}
+      extraCols={extraCols.length ? extraCols : undefined}
       onClose={onClose}
       periodId="all"
       sales={scope}
@@ -255,6 +258,17 @@ function GeoMap({ items, rows, regionSel, setRegionSel, filterOn, setFilterOn }:
 }
 
 /** Clinics where providers have gone quiet (the engine's growth:providers). Null until it answers, and if it cannot, the page simply goes without that row. */
+function useGut(): GutLite | null {
+  const run = useRcaAction(api.gutLists.gutLists);
+  const [data, setData] = useState<GutLite | null>(null);
+  useEffect(() => {
+    let live = true;
+    run({ password: pw() }).then(r => live && setData({ asOf: r.asOf, lists: r.lists as GutLite["lists"] })).catch(() => undefined);
+    return () => { live = false; };
+  }, [run]);
+  return data;
+}
+
 function useProviders(): ProviderLite[] | null {
   const run = useRcaAction(api.growth.providers);
   const [rows, setRows] = useState<ProviderLite[] | null>(null);
@@ -277,6 +291,7 @@ export function GrowthView({ periods, teamLead }: { periods: ExecPeriod[]; teamL
   const eligQ = useQuery(api.growth.eligibleAll, { password: pw() });
   const pgd = usePG(scope, "all");
   const prov = useProviders();
+  const gutRaw = useGut();
   const fzQ = useRcaQuery(api.fzScores.clinics, { password: pw(), periodId: "all", sales: scope });
   const saveOpp = useMutation(api.growth.saveOpp);
   const saveWeights = useMutation(api.growth.saveWeights);
@@ -314,8 +329,14 @@ export function GrowthView({ periods, teamLead }: { periods: ExecPeriod[]; teamL
     if (!book?.ready || !rows) return [];
     const lapsed = lapsedRows && clinicIds ? lapsedRows.filter(l => clinicIds.has(l.clinic) || scope === COMPANY) : lapsedRows;
     const providers = prov && clinicIds ? prov.filter(p => clinicIds.has(p.clinic)) : null;
-    return discover({ windowDays, book: book as never, rows, lapsed, fz: fzLite, whitespace: pgx?.whitespace ?? null, providers }).map(d => resolve(d, (st?.opps?.[d.id] ?? {}) as Saved));
-  }, [book, rows, lapsedRows, clinicIds, scope, windowDays, st?.opps, pgx, prov, fzLite]);
+    // A team lead sees only their team's clinics on each of Thiru's lists.
+    const gut: GutLite | null = gutRaw && clinicIds && scope !== COMPANY ? { asOf: gutRaw.asOf, lists: {
+      refGzOrdersYear: gutRaw.lists.refGzOrdersYear,
+      stopped: gutRaw.lists.stopped.filter(r => clinicIds.has(r.clinic)), similar: gutRaw.lists.similar.filter(r => clinicIds.has(r.clinic)),
+      lost: gutRaw.lists.lost.filter(r => clinicIds.has(r.clinic)), noGut: gutRaw.lists.noGut.filter(r => clinicIds.has(r.clinic)),
+    } } : gutRaw;
+    return discover({ windowDays, book: book as never, rows, lapsed, fz: fzLite, whitespace: pgx?.whitespace ?? null, providers, gut }).map(d => resolve(d, (st?.opps?.[d.id] ?? {}) as Saved));
+  }, [book, rows, lapsedRows, clinicIds, scope, windowDays, st?.opps, pgx, prov, fzLite, gutRaw]);
 
   const [pillar, setPillar] = useState<"All" | Pillar>("All");
   const [source, setSource] = useState<"all" | "scorecard" | "supporting">("all");
