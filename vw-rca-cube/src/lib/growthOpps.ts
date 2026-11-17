@@ -218,12 +218,12 @@ export function discover(inp: Inputs): OppDef[] {
     const count = (i: number) => cands.filter(c => c.index === i).length;
     const mix = BASELINES.map((x, i) => `${count(i)} ${x.baseline}`).join(", ");
     out.push({
-      id: "baseline-candidates", name: "Offer a baseline test to low-AOV clinics that tried a Zoomer", pillar: "Product Growth", source: "supporting", segment: "Under $400 AOV, 1–2 orders of Gut, Foundation or Hormone Zoomer, on none of Thiru's lists",
+      id: "baseline-candidates", name: "Offer a baseline test to low-AOV clinics that tried a Zoomer", pillar: "Product Growth", source: "supporting", segment: "Under $400 AOV, 1–2 orders of Gut, Foundation or Hormone Zoomer, on none of the Gut Zoomer lists",
       indicator: "Low-AOV customers · tried a Zoomer", indicatorValue: `${cands.length.toLocaleString("en-US")} clinics · ${money(annual)} a year if all adopt`, metric: "AOV",
       from: "Product mix per clinic and the scorecard's Low-AOV customers", clinicIds: cands.map(c => c.clinic), n: cands.length, cur: 0, tgt: 10, rateLabel: "share of clinics that start ordering a baseline", value: annual / cands.length,
       observation: `${cands.length.toLocaleString("en-US")} clinics average under $400 an order and ordered Gut, Foundation or Hormone Zoomer only once or twice. They have shown interest but not committed, so a lower-priced baseline is a natural next step: ${mix}.`,
       intervention: "A rep call per clinic offering the baseline that matches its trial: Gut Baseline ($460), Foundation Baseline ($400) or Hormone Baseline ($420).",
-      evidence: "Orders per product family in the analysis window, for the clinics in the scorecard's Low-AOV customers indicator that are on none of Thiru's lists. The value is the baseline price times the yearly orders of clinics that order that Zoomer 3+ times; a family nobody orders that often counts as 0. Only extra orders count: a clinic that swaps a Zoomer for a cheaper baseline lowers revenue. Foundation and Hormone Baseline are new, so their own adoption is not measured yet.", ready: "partial", defaultOwner: "Sales", annual,
+      evidence: "Orders per product family in the analysis window, for the clinics in the scorecard's Low-AOV customers indicator that are on none of the Gut Zoomer lists. The value is the baseline price times the yearly orders of clinics that order that Zoomer 3+ times; a family nobody orders that often counts as 0. Only extra orders count: a clinic that swaps a Zoomer for a cheaper baseline lowers revenue. Foundation and Hormone Baseline are new, so their own adoption is not measured yet.", ready: "partial", defaultOwner: "Sales", annual,
       cols: [
         { key: "blTrial", label: "Zoomer orders", title: "Orders of the trial Zoomer in the analysis window", kind: "int", values: Object.fromEntries(cands.map(c => [c.clinic, c.orders])) },
         { key: "blOffer", label: "Offer", title: "The baseline that matches the Zoomer the clinic tried", kind: "offer", values: Object.fromEntries(cands.map(c => [c.clinic, c.index + 1])) },
@@ -351,7 +351,7 @@ export function discover(inp: Inputs): OppDef[] {
   const gut = inp.gut;
   if (gut) {
     const L = gut.lists;
-    const SRC = "Thiru's Gut Zoomer growth lists (11 Nov 2026), computed from the order data";
+    const SRC = "Gut Zoomer growth lists (11 Nov 2026), computed from the order data";
     const m = (rows: Array<{ clinic: string }>, f: (r: never) => number) => Object.fromEntries(rows.map(r => [r.clinic, f(r as never)]));
     const mean = (xs: number[]) => (xs.length ? sum(xs, x => x) / xs.length : 0);
     if (L.stopped.length)
