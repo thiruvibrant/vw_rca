@@ -53,6 +53,10 @@ cubes:
       - { name: buying_rhythm_ratio, sql: buying_rhythm_ratio, type: number }
       - { name: is_coupon_used, sql: is_coupon_used, type: boolean }
       # --- added for vw-rca ---
+      # Gut Zoomer growth lists, lists 2 and 6 (2026-11): clinic-level counts of new patients and of patients due a follow-up need to tell
+      # patients apart. PRIVACY: this is a pseudonymous key (salted hash), never the patient id, and the analytics engine uses it only to count
+      # per clinic and never sends it to a browser. Do not add patient names, dates of birth, ages or genders here.
+      - { name: patient_key, sql: "IF(IFNULL(CAST(patient_id AS STRING), '') = '', CAST(NULL AS STRING), TO_HEX(SHA256(CONCAT('vw-rca|', CAST(patient_id AS STRING)))))", type: string }
       - { name: customer_name, sql: customer_name, type: string }
       - { name: customer_type, sql: customer_type, type: string }
       - { name: charge_method, sql: charge_method, type: string }

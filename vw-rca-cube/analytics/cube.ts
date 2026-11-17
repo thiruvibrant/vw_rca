@@ -259,6 +259,9 @@ const ORDER_DIMS: Record<string, string> = {
   charge_method: "charge_method",
   hubspot_id: "hubspot_id",
   sample_test_type_v2: "sample_test_type_v2",
+  customer_credential: "customer_credential",
+  // Pseudonymous patient key (cube/model-vibrant, 2026-11); present only once that model change is deployed.
+  patient_id: "patient_key",
 };
 const LEGACY_TABLE = "customer_rfm_segmented_orders";
 const LEGACY_FAMILY = "fact_order_tests_enriched[product_family]";
