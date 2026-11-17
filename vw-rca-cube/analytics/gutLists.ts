@@ -29,6 +29,8 @@ export const W = {
   y25End: "2025-12-31",
 } as const;
 export const GZ_BASELINE_PRICE = 460;
+/** A clinic counts as a "similar clinic" only with this many orders in Mar–Oct 2026 (checked against the analysis: 62 peers for Desert Wellness, 8 for Synergy). */
+const PEER_MIN_ORDERS = 10;
 
 export type GutData = {
   /** Revenue 1 Jan – 31 Oct 2026, all products, and the part from VW / VW+VA orders. */
@@ -112,7 +114,7 @@ export function buildLists(d: GutData): GutLists {
   const ofPeer = new Map<string, string[]>();
   const add = (k: string, c: string) => ofPeer.set(k, [...(ofPeer.get(k) ?? []), c]);
   for (const [c, p] of d.peer) {
-    if (get(d.ordersMarOct, c, 0) <= 0) continue;
+    if (get(d.ordersMarOct, c, 0) < PEER_MIN_ORDERS) continue;
     add(`z|${p.cred}|${p.zip3}`, c);
     add(`s|${p.cred}|${p.state}`, c);
   }
@@ -153,8 +155,10 @@ export function buildLists(d: GutData): GutLists {
   }
 
   // List 4: a top-20% Gut Zoomer clinic of 2025 (5+ orders), no Gut Zoomer in 2026, still top 20% and VW-dependent, still ordering other Zoomers.
-  const gzClinics = [...d.gz25Rev].filter(([c, r]) => r > 0 && get(d.gz25, c, 0) >= 5);
-  const gzCut = topCut(gzClinics.map(([, r]) => r));
+  // The top 20% is taken over every clinic with Gut Zoomer revenue in 2025 (784 in the analysis), then 5+ orders are required.
+  const gzAll = [...d.gz25Rev].filter(([, r]) => r > 0);
+  const gzCut = topCut(gzAll.map(([, r]) => r));
+  const gzClinics = gzAll.filter(([c]) => get(d.gz25, c, 0) >= 5);
   const lost: LostRow[] = [];
   for (const [c, r] of gzClinics) {
     if (r < gzCut || taken.has(c) || !top.has(c) || d.gz26.has(c) || vwShare(c) < 0.5 || !(d.zoomers26.get(c)?.length)) continue;
@@ -272,9 +276,9 @@ async function pull(): Promise<GutData> {
   const by = ["clinic_id"];
   const q = (start: string, end: string, filters: unknown[] = [], extra: Record<string, string> = {}) =>
     ordersRows({ by, start, end, m: { n: "orders", rev: "revenue", ...extra }, filters: filters as never });
-  // The order types that count as VW: every sample_test_type_v2 value that starts with VW (VW, VW+VA).
+  // The order types that count as VW: "VW" and "Both" (VW + VA). VA-only and unmapped orders do not.
   const types = await ordersRows({ by: ["sample_test_type_v2"], start: W.revStart, end: W.revEnd, m: { n: "orders" } });
-  const vwTypes = types.map(r => String(r[`${TABLE}[sample_test_type_v2]`] ?? "")).filter(t => /^VW/i.test(t));
+  const vwTypes = types.map(r => String(r[`${TABLE}[sample_test_type_v2]`] ?? "")).filter(t => /^(VW|Both)$/i.test(t.trim()));
   const [rev, vw, gzA, gzB, gz25, gz26, fz26, base26, ordMarOct, gzMarOct, ordB, gzLastRows, fam26] = await Promise.all([
     q(W.revStart, W.revEnd),
     vwTypes.length ? q(W.revStart, W.revEnd, [eq(`${O}.sample_test_type_v2`, ...vwTypes)]) : Promise.resolve([]),
@@ -304,14 +308,21 @@ async function pull(): Promise<GutData> {
     const v = String(r["[last]"] ?? "").slice(0, 10);
     if (clin(r) && v) gzLast.set(clin(r), v);
   }
-  // Main provider per clinic: the customer with the most revenue Mar–Oct, then their credential, ZIP and state.
+  // Main provider per clinic: the customer with the most revenue Mar–Oct gives the ZIP area and state. The credential is the grouped
+  // credential that brings the clinic the most revenue (a clinic with several credentials uses that one).
   const prov = await ordersRows({ by: ["clinic_id", "customer_id", "customer_credential"], start: W.aStart, end: W.bEnd, m: { rev: "revenue" } });
-  const main = new Map<string, { id: string; cred: string; rev: number }>();
+  const main = new Map<string, { id: string; rev: number }>();
+  const credRev = new Map<string, Map<string, number>>();
   for (const r of prov) {
     const c = clin(r);
+    if (!c) continue;
     const rv = num(r, "rev");
     const cur = main.get(c);
-    if (c && (!cur || rv > cur.rev)) main.set(c, { id: String(r[`${TABLE}[customer_id]`] ?? ""), cred: String(r[`${TABLE}[customer_credential]`] ?? ""), rev: rv });
+    if (!cur || rv > cur.rev) main.set(c, { id: String(r[`${TABLE}[customer_id]`] ?? ""), rev: rv });
+    const g = credentialGroup(String(r[`${TABLE}[customer_credential]`] ?? ""));
+    const m = credRev.get(c) ?? new Map<string, number>();
+    m.set(g, (m.get(g) ?? 0) + rv);
+    credRev.set(c, m);
   }
   const cust = await cubeRows({ dimensions: ["customers.customer_id", "customers.zipcode", "customers.state"] }, {
     "customers.customer_id": "customers[customer_id]", "customers.zipcode": "customers[zipcode]", "customers.state": "customers[state]",
@@ -320,7 +331,10 @@ async function pull(): Promise<GutData> {
   const peer = new Map<string, { cred: string; zip3: string; state: string }>();
   for (const [c, m] of main) {
     const w = where.get(m.id);
-    peer.set(c, { cred: credentialGroup(m.cred), zip3: (w?.zip ?? "").replace(/\D/g, "").slice(0, 3), state: (w?.state ?? "").toUpperCase() });
+    // The credential group with the most revenue.
+    const groups = [...(credRev.get(c) ?? new Map<string, number>())].sort((a, b) => b[1] - a[1]);
+    const cred = groups[0]?.[0] ?? "Others";
+    peer.set(c, { cred, zip3: (w?.zip ?? "").replace(/\D/g, "").slice(0, 3), state: (w?.state ?? "").toUpperCase() });
   }
   const patients = await pullPatients();
   return {

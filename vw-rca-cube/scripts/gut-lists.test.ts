@@ -126,3 +126,22 @@ test("without the patient key, lists 2 and 6 are left out and the others still b
   assert.deepEqual(l.newPatients, []);
   assert.deepEqual(l.followUp, []);
 });
+
+test("list 4: the top 20% is taken over every clinic with Gut Zoomer revenue in 2025, then 5+ orders are required", () => {
+  const d = base();
+  for (let i = 1; i <= 10; i++) { d.gz25Rev.set(String(i), i * 100); d.gz25.set(String(i), i >= 8 ? 6 : 1); d.zoomers26.set(String(i), ["Hormone Zoomer"]); }
+  const l = buildLists(d);
+  // 900 and 1000 are the top 20% of the ten; clinic 8 has 5+ orders but is below the cut. (Taking the cut over the three 5+ clinics would drop clinic 9.)
+  assert.deepEqual(l.lost.map(r => r.clinic).sort(), ["10", "9"]);
+});
+
+test("list 3: a similar clinic needs 10+ orders in Mar–Oct", () => {
+  const d = base();
+  const p = { cred: "NP", zip3: "658", state: "MO" };
+  d.peer.set("10", p);
+  for (let i = 1; i <= 6; i++) { d.peer.set(`p${i}`, p); d.ordersMarOct.set(`p${i}`, 9); d.gzMarOct.set(`p${i}`, 4); }
+  d.ordersMarOct.set("10", 100); d.gzMarOct.set("10", 5);
+  assert.deepEqual(buildLists(d).similar, []);
+  for (let i = 1; i <= 6; i++) { d.ordersMarOct.set(`p${i}`, 10); d.gzMarOct.set(`p${i}`, 4); }
+  assert.deepEqual(buildLists(d).similar.map(r => r.clinic), ["10"]);
+});
