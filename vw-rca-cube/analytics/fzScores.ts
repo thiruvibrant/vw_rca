@@ -15,6 +15,7 @@ import { internalAction, internalMutation } from "./_generated/server";
 import { loadCfg } from "./config";
 import { load } from "./cube";
 import { periodRange } from "./families";
+import { standingIn, windowDates } from "./clinicLabels";
 import { conversionRates, fzTargets, type FzRow } from "./fzTargets";
 import { scopedQuery } from "./gated";
 import { isCompanyLead, isTeamScope, teamOf } from "./scope";
@@ -135,6 +136,30 @@ export const clinics = scopedQuery({
 
     const rates = conversionRates(all);
     const res = fzTargets(all, win, new Set(byClinic.keys()), rates);
+    // Top 20% = on the company's last-12-months list as of the window's end (clinicLabels.ts), the same list the Cohort
+    // column uses, so the button and the label agree in every window. A churned or new clinic can be on it: it stays in
+    // the list, labelled. Snapshots without stored codes keep the Cube's year-to-date flag. (2026-11-16)
+    const dates = windowDates(args.periodId, pr?.end ?? cfg.currentEnd, cfg.currentEnd);
+    const clinics = res.clinics
+      .map(c => {
+        const m = byClinic.get(c.clinic);
+        const st = standingIn(m?.labelAt, dates);
+        return {
+          ...c,
+          isTop20: st ? st.onList : c.isTop20,
+          cohort: st?.cohort,
+          prevCohort: st?.prevCohort,
+          move: st?.move ?? null,
+          t12Revenue: m?.t12Revenue,
+          tierRank: m?.tierRank,
+          name: m?.name ?? `Clinic ${c.clinic}`,
+          state: m?.state ?? "",
+          sales: m?.sales ?? "",
+        };
+      })
+      // Most open targets first, then the biggest clinics (last 12 months).
+      .sort((a, b) => b.open - a.open || (b.t12Revenue ?? 0) - (a.t12Revenue ?? 0) || b.high - a.high || a.clinic.localeCompare(b.clinic));
+    const topClinics = clinics.filter(c => c.isTop20);
     // Company-wide follow-up in the same window, so a rep can compare their book with everyone's.
     const co = fzTargets(all, win, null, rates).totals;
     // Latest result on file: tells the rep how fresh the scores are.
@@ -150,13 +175,15 @@ export const clinics = scopedQuery({
       allOnFile: !win,
       scoresThrough,
       rates,
-      totals: res.totals,
+      totals: {
+        ...res.totals,
+        topClinics: topClinics.length,
+        topChurned: topClinics.filter(c => c.cohort === "churned").length,
+        topNew: topClinics.filter(c => c.cohort === "new").length,
+      },
       company: { flagged: co.flagged, followed: co.followed },
       products: res.products,
-      clinics: res.clinics.map(c => {
-        const meta = byClinic.get(c.clinic);
-        return { ...c, name: meta?.name ?? `Clinic ${c.clinic}`, state: meta?.state ?? "", sales: meta?.sales ?? "" };
-      }),
+      clinics,
     };
   },
 });

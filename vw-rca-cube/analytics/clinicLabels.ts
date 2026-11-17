@@ -18,11 +18,32 @@ import { classifyClinic } from "./lifecycleRules";
 export type Label = "retained_top20" | "retained_rest" | "new" | "reactivated" | "churned";
 export type Move = "up" | "down" | "neutral";
 
-/** Short codes for storage (one per clinic per month-end). */
+/**
+ * Short codes for storage (one per clinic per month-end). Upper case = the clinic is on that month's Top 20% list, whatever
+ * its lifecycle (a churned or new clinic can be on it: the list is by revenue, the label by lifecycle). Snapshots built
+ * before 2026-11-16 are all lower case; there only "t" says the clinic is on the list.
+ */
 const CODE: Record<Label, string> = { retained_top20: "t", retained_rest: "r", new: "n", reactivated: "a", churned: "c" };
 const DECODE: Record<string, Label> = { t: "retained_top20", r: "retained_rest", n: "new", a: "reactivated", c: "churned" };
-export const encodeLabel = (l: Label) => CODE[l];
-export const decodeLabel = (c: string | undefined): Label | undefined => (c ? DECODE[c] : undefined);
+export const encodeLabel = (l: Label, onList = l === "retained_top20") => (onList ? CODE[l].toUpperCase() : CODE[l]);
+export const decodeLabel = (c: string | undefined): Label | undefined => (c ? DECODE[c.toLowerCase()] : undefined);
+/** Whether a stored code says the clinic is on that month's Top 20% list. */
+export const onListOf = (c: string | undefined): boolean => !!c && (c === "t" || c !== c.toLowerCase());
+
+/**
+ * A clinic's standing in a window, from its stored codes: on the Top 20% list as of the window's end, its label then and
+ * in the window before, and the move. `null` when the snapshot has no codes (older build), so callers keep their own flag.
+ */
+export function standingIn(
+  labelAt: Record<string, string> | undefined,
+  dates: { at: string; before: string | null },
+): { onList: boolean; cohort?: Label; prevCohort?: Label; move: Move | null } | null {
+  if (!labelAt || !Object.keys(labelAt).length) return null;
+  const now = labelAt[dates.at];
+  const cohort = decodeLabel(now);
+  const prevCohort = dates.before ? decodeLabel(labelAt[dates.before]) : undefined;
+  return { onList: onListOf(now), cohort, prevCohort, move: moveOf(prevCohort, cohort) };
+}
 
 export const TOP_SHARE = 0.2;
 
@@ -120,7 +141,7 @@ export function labelsFor(
     if (!inp.firstOrder || inp.firstOrder > date) continue;
     const lc = classifyClinic({ ...inp, cutoff: date });
     const onList = lists.get(listMonthOf(date))?.top.has(inp.clinic) ?? false;
-    out[date] = encodeLabel(labelOf(lc, onList));
+    out[date] = encodeLabel(labelOf(lc, onList), onList);
   }
   return out;
 }

@@ -71,6 +71,8 @@ const COHORT: Record<string, string> = {
   retained_rest: "Active · rest",
   reactivated: "Reactivated",
 };
+/** Display order of the cohort labels in filters: biggest clinics first, churned last. */
+const COHORT_ORDER: Record<string, number> = { retained_top20: 0, retained_rest: 1, new: 2, reactivated: 3, churned: 4 };
 
 export type RepViewPeriod = { id: string; kind: string; label: string; start: string; end: string };
 
@@ -1956,7 +1958,7 @@ const ALL_PRODUCTS_CELLS = new Set([
 type Launch = { firstOrder: string; daysLive: number };
 function scopeRows(rows: Array<{ pillar: string; cells: Cell[] }>, b: Book, hz: Fam | undefined, family: string, clinics: PGClinic[] | null, launch?: Launch) {
   const newSet = new Set<string>([...(b.newIds ?? []), ...(b.reactivatedIds ?? [])]);
-  const loading = (c: Cell): Cell => NA(c.label, "loading product mix…");
+  const loading = (c: Cell): Cell => NA(c.label, PG_LOADING);
   const none = (c: Cell): Cell => NA(c.label, `no ${family} orders in this book`);
   return rows.map(r => ({
     ...r,
@@ -2063,7 +2065,7 @@ function scoreRows(b: Book, fams: Wins, pg?: PGStats | null, scope?: { family: s
               ids: [...pg.adoptIds, ...pg.addedIds], n: pg.adoption, u: "%", better: 1,
               tone: pg.adoption === null ? "na" : pg.adoption >= 0.5 ? "good" : pg.adoption >= 0.3 ? "watch" : "bad",
             }
-          : NA("Product adoption", "loading product mix…"),
+          : NA("Product adoption", PG_LOADING),
         pg
           ? {
               label: "Product whitespace",
@@ -2072,7 +2074,7 @@ function scoreRows(b: Book, fams: Wins, pg?: PGStats | null, scope?: { family: s
               tone: "act",
               ids: pg.wsIds,
             }
-          : NA("Product whitespace", "loading product mix…"),
+          : NA("Product whitespace", PG_LOADING),
         pg
           ? {
               label: "Repeat product rate",
@@ -2081,7 +2083,7 @@ function scoreRows(b: Book, fams: Wins, pg?: PGStats | null, scope?: { family: s
               ids: pg.repIds, n: pg.repeat, u: "%", better: 1,
               tone: pg.repeat === null ? "na" : pg.repeat >= 0.5 ? "good" : pg.repeat >= 0.35 ? "watch" : "bad",
             }
-          : NA("Repeat product rate", "loading product mix…"),
+          : NA("Repeat product rate", PG_LOADING),
       ],
     },
     {
@@ -2117,10 +2119,10 @@ function scoreRows(b: Book, fams: Wins, pg?: PGStats | null, scope?: { family: s
         { label: "Expansion Revenue", value: SK(k.expansionRev), sub: `${k.growing} clinics growing`, tone: "good", ids: b.opp?.growing?.ids, n: k.expansionRev, u: "$", flow: true, better: 1 },
         pg
           ? { label: "Products per customer", value: pg.ppcRange, sub: `families per clinic (middle 50%) · ${pg.activeN} clinics`, ids: pg.activeIds, n: pg.ppc, u: "n", better: 1, tone: pg.ppc === null ? "na" : pg.ppc >= 2 ? "good" : pg.ppc >= 1.5 ? "watch" : "bad" }
-          : NA("Products per customer", "loading product mix…"),
+          : NA("Products per customer", PG_LOADING),
         pg
           ? { label: "Cross-sell candidates", value: String(pg.xs.length), sub: `${K(pg.xsUp)} upside · active clinics on 1–2 families${fz?.ready && fz.totals.clinics ? ` · +${fz.totals.clinics} clinics from FZ scores: open the Foundation Zoomer tile` : ""}`, tone: "act", ids: pg.xs.map(x => x.clinic) }
-          : NA("Cross-sell candidates", "loading product mix…"),
+          : NA("Cross-sell candidates", PG_LOADING),
         { label: "NRR", value: P(k.nrr), sub: "existing clinics vs baseline", tone: vsTone(k.nrr), ids: b.existingIds, n: k.nrr, u: "%", better: 1 },
       ],
     },
@@ -2432,7 +2434,7 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, startFam, sales, peri
   const launchOf = useMemo(() => new Map((launchQ?.launches ?? []).map(l => [l.family, l])), [launchQ]);
   const isNewFam = (f: string) => launchOf.get(f)?.isNew === true;
   const famLaunch = scoped && isNewFam(family) ? launchOf.get(family) : undefined;
-  const rows0 = scoreRows(b, fams, pg, scoped ? { family, clinics: pgd.data?.clinics ?? null, launch: famLaunch } : undefined, tenureSel, fz);
+  const rows0 = pgFailedRows(scoreRows(b, fams, pg, scoped ? { family, clinics: pgd.data?.clinics ?? null, launch: famLaunch } : undefined, tenureSel, fz), pgd);
   // This year's signups have no baseline (new clinics carry none), so Revenue Retention / NRR / Expansion / At-risk have
   // nothing to compare with; for that cut retention is the share of new clinics still ordering (2026-10-18).
   const curCell = (c: Cell): Cell => {
@@ -3341,6 +3343,7 @@ export function FocusTable({
   const [health, setHealth] = useState("");
   const [pstatus, setPstatus] = useState("");
   const [moved, setMoved] = useState<"" | "up" | "down" | "same">("");
+  const [cohortF, setCohortF] = useState("");
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [limit, setLimit] = useState<number | null>(null);
@@ -3386,11 +3389,18 @@ export function FocusTable({
   }, [rows, periodId]);
   const moveOk = (m: string | null | undefined) =>
     !moved || (moved === "same" ? m !== "up" && m !== "down" : m === moved);
+  // Cohort label for this window (top 20% / rest / new / reactivated / churned), in the usual order, with counts.
+  const cohortOptions = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of rows ?? []) if (r.cohort && COHORT[r.cohort]) m.set(r.cohort, (m.get(r.cohort) ?? 0) + 1);
+    return [...m].sort((a, b) => (COHORT_ORDER[a[0]] ?? 9) - (COHORT_ORDER[b[0]] ?? 9));
+  }, [rows]);
   const q = term.trim().toLowerCase();
   const filtered = (rows ?? []).filter(
     r =>
       (!health || (r.health ?? []).includes(health)) &&
       (!pstatus || (r.pstatus ?? []).includes(pstatus)) &&
+      (!cohortF || r.cohort === cohortF) &&
       moveOk(r.move) &&
       (!q || r.name.toLowerCase().includes(q)),
   );
@@ -3457,6 +3467,14 @@ export function FocusTable({
                   <option key={v} value={v}>{v} ({n})</option>
                 ))}
               </select>
+              {cohortOptions.length > 1 ? (
+                <select className="rca-select" value={cohortF} onChange={e => setCohortF(e.target.value)} title="The clinic's label as of this window's end">
+                  <option value="">Cohort · any</option>
+                  {cohortOptions.map(([v, n]) => (
+                    <option key={v} value={v}>{COHORT[v]} ({n})</option>
+                  ))}
+                </select>
+              ) : null}
               {moveCounts ? (
                 <select
                   className={`rca-select${moved ? " rv-move-select" : ""}`}
@@ -3470,9 +3488,9 @@ export function FocusTable({
                   <option value="same">No change ({moveCounts.same})</option>
                 </select>
               ) : null}
-              {health || pstatus || q || moved ? (
+              {health || pstatus || q || moved || cohortF ? (
                 <>
-                  <button type="button" className="rca-tab" onClick={() => { setHealth(""); setPstatus(""); setTerm(""); setMoved(""); }}>
+                  <button type="button" className="rca-tab" onClick={() => { setHealth(""); setPstatus(""); setTerm(""); setMoved(""); setCohortF(""); }}>
                     clear
                   </button>
                   <span className="rca-filter-note">{filtered.length} of {rows.length} listed clinics</span>
@@ -4728,14 +4746,33 @@ function usePG(sales?: string, periodId?: string) {
   const run = useRcaAction(api.productGrowth.productGrowth);
   const eligQ = useQuery(api.productGrowth.eligible, sales ? { password: pw(), sales } : "skip");
   const [data, setData] = useState<{ clinics: PGClinic[] } | null>(null);
+  // The product mix is a live Cube read on the engine's first call per tab: it can be slow, and it can fail (engine
+  // restarting, Cube unreachable). Retry twice, then say so instead of "loading…" forever (2026-11-16).
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => { setAttempt(0); setFailed(false); }, [sales, periodId]);
   useEffect(() => {
     if (!sales || !periodId) return;
     let live = true;
-    setData(null);
-    run({ password: pw(), sales, periodId }).then(r => live && r.ready && setData(r)).catch(() => undefined);
-    return () => { live = false; };
-  }, [sales, periodId, run]);
-  return { data, elig: (eligQ ?? []) as Array<{ clinic: string; family: string }> };
+    if (attempt === 0) setData(null);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    run({ password: pw(), sales, periodId })
+      .then(r => { if (live && r.ready) setData(r); })
+      .catch(() => {
+        if (!live) return;
+        if (attempt < 2) timer = setTimeout(() => live && setAttempt(a => a + 1), 4000 * (attempt + 1));
+        else setFailed(true);
+      });
+    return () => { live = false; if (timer) clearTimeout(timer); };
+  }, [sales, periodId, run, attempt]);
+  return { data, failed: failed && !data, elig: (eligQ ?? []) as Array<{ clinic: string; family: string }> };
+}
+const PG_LOADING = "loading product mix…";
+const PG_FAILED = "couldn't load product mix (data service busy or offline) · switch the window or reload to retry";
+/** After the retries fail, the product-mix cells say so instead of "loading…" forever. */
+function pgFailedRows<R extends { cells: Array<{ sub: string }> }>(rows: R[], pgd: { failed: boolean }): R[] {
+  if (!pgd.failed) return rows;
+  return rows.map(r => ({ ...r, cells: r.cells.map(c => (c.sub === PG_LOADING ? { ...c, sub: PG_FAILED } : c)) }));
 }
 const NON_ZOOMER = "Non Zoomer";
 function pgStats(b: Book, clinics: PGClinic[], elig: Array<{ clinic: string; family: string }>, family: string): PGStats {
@@ -4843,14 +4880,18 @@ function WhitespacePlanner({ sales, clinics, elig, family, famList, setFamily }:
  * → Expansion × Cross-sell candidates = the clinics whose FZ results point to other Zoomers → clinic list with
  * Zoomer filter buttons; expanding a clinic shows its FZ cross-sell breakdown above the usual clinic card.
  * Counting unit for sales: an "FZ result" = a patient's latest FZ in the window, one area. Never patients or names. */
-type FzClinicRow = FzClinic & { name: string; state: string; sales: string };
+/** isTop20 = on the company's last-12-months Top 20% list as of the window's end (the Cube's YTD flag on an older engine). */
+type FzClinicRow = FzClinic & {
+  name: string; state: string; sales: string;
+  cohort?: string; prevCohort?: string; move?: "up" | "down" | "neutral" | null; t12Revenue?: number; tierRank?: number;
+};
 type FzReady = {
   ready: true;
   window: { start: string; end: string };
   allOnFile: boolean;
   scoresThrough: string;
   rates: Record<string, number>;
-  totals: FzTotals;
+  totals: FzTotals & { topChurned?: number; topNew?: number };
   company: { flagged: number; followed: number };
   products: FzProduct[];
   clinics: FzClinicRow[];
@@ -4898,8 +4939,14 @@ function fzContrib(fz: FzReady): Contribution {
     note: "Clinics whose Foundation Zoomer results in this window point to a Zoomer the provider hasn't ordered. Clinic level only.",
   };
 }
+/** A top 20% clinic that is not simply active (churned, new, reactivated) says so: a churned big clinic is a win-back call. */
+const topWord = (c: FzClinicRow) =>
+  !c.isTop20 ? "" : c.cohort && c.cohort !== "retained_top20" ? ` · top 20% clinic, ${(COHORT[c.cohort] ?? c.cohort).toLowerCase()}` : " · top 20% clinic";
 const fzRowLine = (c?: FzClinicRow) =>
-  c ? `${c.products.filter(p => p.open).map(p => `${p.product} ${p.open}`).join(" · ")} · ${KR(c.low, c.high)} at stake${c.isTop20 ? " · top 20% clinic" : ""}` : "";
+  c ? `${c.products.filter(p => p.open).map(p => `${p.product} ${p.open}`).join(" · ")} · ${KR(c.low, c.high)} at stake${topWord(c)}` : "";
+
+/** Labels per window are on this engine when the rows carry a cohort (older engines send the Cube's YTD flag only). */
+const fzByList = (fz: FzReady) => fz.clinics.some(c => c.cohort !== undefined);
 
 function FzStatus({ fz }: { fz: FzResp }) {
   if (fz === undefined) return <p className="rv-dim rv-small">Loading FZ scores…</p>;
@@ -4909,20 +4956,23 @@ function FzStatus({ fz }: { fz: FzResp }) {
     <div className="rv-fz-note">
       <p className="rv-dim rv-small">
         <b>Window:</b> FZ results that came back {fmtD(fz.window.start)} – {fmtD(fz.window.end)}
-        {fz.allOnFile ? " (every result on file)" : ""}. Latest result on file: {fmtD(fz.scoresThrough)}. <b>Top 20%</b> = the
-        company's top 20% of clinics by {year} revenue to date.
+        {fz.allOnFile ? " (every result on file)" : ""}. Latest result on file: {fmtD(fz.scoresThrough)}. <b>Top 20%</b> ={" "}
+        {fzByList(fz)
+          ? "the company's Top 20% list as of the window's end (top 20% of clinics by revenue in the last 12 months, set each month), the same list as the Cohort column. A top clinic that has churned or is new stays in the list with its label: filter by Cohort to see them."
+          : `the company's top 20% of clinics by ${year} revenue to date.`}
       </p>
     </div>
   );
 }
 
 /** KPI strip for a set of FZ numbers (the whole book, or one Zoomer's clinics). */
-function FzKpis({ t, company, tour }: { tour?: string; t: Pick<FzTotals, "clinics" | "topClinics" | "flagged" | "followed" | "open" | "low" | "high" | "likely">; company?: { flagged: number; followed: number } }) {
+function FzKpis({ t, company, tour }: { tour?: string; t: Pick<FzTotals, "clinics" | "topClinics" | "flagged" | "followed" | "open" | "low" | "high" | "likely"> & { topChurned?: number; topNew?: number }; company?: { flagged: number; followed: number } }) {
   const r = fzRate(t.followed, t.flagged);
   const cr = company ? fzRate(company.followed, company.flagged) : null;
+  const topOf = [t.topChurned ? `${t.topChurned} churned` : "", t.topNew ? `${t.topNew} new` : ""].filter(Boolean).join(", ");
   return (
     <div className="rv-fz-kpis" data-tour={tour}>
-      <div><b>{t.clinics}</b><span>clinics to call{t.topClinics ? ` · ${t.topClinics} in the top 20%` : ""}</span></div>
+      <div><b>{t.clinics}</b><span>clinics to call{t.topClinics ? ` · ${t.topClinics} in the top 20%${topOf ? ` (${topOf})` : ""}` : ""}</span></div>
       <div><b>{t.flagged}</b><span>FZ results pointing to a Zoomer</span></div>
       <div><b>{t.followed} <small>({P(r)})</small></b><span>led to a Zoomer order{cr !== null ? ` · company ${P(cr)}` : ""}</span></div>
       <div><b>{t.open}</b><span>still open: no Zoomer ordered</span></div>
@@ -4995,18 +5045,22 @@ function FzClinicList({ fz, rows, area0, onClose, periodId, sales }: { fz: FzRea
   const t = useMemo(() => {
     const lines = shown.flatMap(c => c.products.filter(p => !area || p.area === area));
     const s = (k: "flagged" | "followed" | "open" | "low" | "high" | "likely") => lines.reduce((x, p) => x + p[k], 0);
+    const tops = shown.filter(c => c.isTop20);
     return {
-      clinics: shown.length, topClinics: shown.filter(c => c.isTop20).length,
+      clinics: shown.length, topClinics: tops.length,
+      topChurned: tops.filter(c => c.cohort === "churned").length, topNew: tops.filter(c => c.cohort === "new").length,
       flagged: s("flagged"), followed: s("followed"), open: s("open"), low: s("low"), high: s("high"), likely: s("likely"),
     };
   }, [shown, area]);
-  // Every FZ clinic gets a row, even one with no orders in this window (its order columns then read zero).
+  // Every FZ clinic gets a row, even one with no orders in this window (its order columns then read zero; its label
+  // comes from the FZ rows, which carry it for the same window).
   const tableRows: FocusRows = useMemo(() => {
     if (!rows) return null;
     const have = new Map(rows.map(r => [r.clinic, r]));
     return shown.map((c, i) => ({
       ...(have.get(c.clinic) ?? {
-        clinic: c.clinic, name: c.name, state: c.state, cohort: "—", actual: 0, expected: 0, delta: 0, orders: 0, expectedOrders: 0,
+        clinic: c.clinic, name: c.name, state: c.state, cohort: c.cohort ?? "—", prevCohort: c.prevCohort, move: c.move,
+        actual: 0, expected: 0, delta: 0, orders: 0, expectedOrders: 0,
         orderDelta: 0, aov: 0, baseAov: 0, aovDelta: 0, bundleShare: 0, baseBundleShare: 0, bundleDelta: 0,
       }),
       rank: i + 1,
@@ -5046,7 +5100,7 @@ function FzClinicList({ fz, rows, area0, onClose, periodId, sales }: { fz: FzRea
                 {p.product} · {p.clinics}
               </button>
             ))}
-            <button type="button" data-tour="fz-top20" className={top ? "on" : ""} onClick={() => setTop(x => !x)} title="Company top 20% of clinics by this year's revenue">Top 20% only</button>
+            <button type="button" data-tour="fz-top20" className={top ? "on" : ""} onClick={() => setTop(x => !x)} title={fzByList(fz) ? "On the company's Top 20% list (last 12 months' revenue) as of this window's end, whatever the clinic's label" : "Company top 20% of clinics by this year's revenue"}>Top 20% only</button>
           </div>
           <FzKpis t={t} tour="fz-kpis" />
           <p className="rv-fz-say" data-tour="fz-list-say">{fzSalesNote(t, "this list", prodName)}</p>
@@ -5286,7 +5340,7 @@ export function useExecScorecard(sales: string, periodId: string | undefined, fa
     const launchOf = new Map((launchQ?.launches ?? []).map(l => [l.family, l]));
     const selFam: Fam | undefined = (fams?.all ?? []).find((f: Fam) => f.family === family);
     const famLaunch = scoped && launchOf.get(family)?.isNew ? launchOf.get(family) : undefined;
-    const rows: Array<{ pillar: string; cells: ExecCell[] }> = scoreRows(b, fams, pg, scoped ? { family, clinics: pgd.data?.clinics ?? null, launch: famLaunch as Launch | undefined } : undefined, "all", fz);
+    const rows: Array<{ pillar: string; cells: ExecCell[] }> = pgFailedRows(scoreRows(b, fams, pg, scoped ? { family, clinics: pgd.data?.clinics ?? null, launch: famLaunch as Launch | undefined } : undefined, "all", fz), pgd);
     const k = b.kpi;
     const scale = pace?.ratio ?? (pace && pace.elapsedDays ? (pace.elapsedDays + pace.remainingDays) / pace.elapsedDays : 1);
     const newRev = k.newRevenue + (k.reactivatedRevenue ?? 0);
@@ -5373,7 +5427,7 @@ export function useExecScorecard(sales: string, periodId: string | undefined, fa
       repeat: { rate: k.repeatRate ?? null, n: k.repeatCount ?? 0, of: k.activeCount ?? 0 },
       families,
     };
-  }, [b, fams, pace, pg, pgd.data, launchQ, family, scoped, mode, elapsed]);
+  }, [b, fams, pace, pg, pgd.data, pgd.failed, launchQ, family, scoped, mode, elapsed]);
   // Same rule as the rep scorecard's openCell: up / down split where one exists, otherwise the plain list.
   const pick = (label: string): ExecSel | null => {
     // Foundation Zoomer selected: the Cross-sell cell opens the FZ clinic list, over the Overview's scope (the whole company or one team lead's team).

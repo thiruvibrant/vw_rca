@@ -537,7 +537,7 @@ const SECTIONS: Section[] = [
         good: "A \"where to act\" cell. The question for the provider: these patients came back low on gut; what is the plan for them?",
         watch: [
           "The window is the day the result came back from the lab (about 2–3 weeks after the order). A short window can have none: try This quarter or Last quarter.",
-          "Top 20% marks the company's top 20% of clinics by this year's revenue to date. It is the same in every window and for every rep.",
+          "Top 20% marks clinics on the company's Top 20% list as of the window's end: the top 20% of clinics by revenue in the last 12 months, set each month (the same list as the Cohort column). Last month shows last month's list. A top clinic that has churned or is new stays in the list with its label: use the Cohort filter to find win-backs.",
           "Clinic level only: patient names and IDs are never shown; the provider knows which patients.",
         ],
         example: {

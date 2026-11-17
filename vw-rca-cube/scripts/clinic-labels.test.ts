@@ -2,7 +2,7 @@
 // window's end, which dates a window compares, and the direction of a move. No Cube, no Convex.
 //   node --import tsx scripts/clinic-labels.test.ts
 import assert from "node:assert/strict";
-import { decodeLabel, labelDates, labelOf, labelsFor, moveOf, revenueMonthsFor, tierLists, windowDates } from "../analytics/clinicLabels";
+import { decodeLabel, encodeLabel, labelDates, labelOf, labelsFor, moveOf, onListOf, revenueMonthsFor, standingIn, tierLists, windowDates } from "../analytics/clinicLabels";
 
 let n = 0;
 const test = (name: string, fn: () => void) => {
@@ -84,6 +84,44 @@ test("labels per date: a clinic that stops ordering drops to churned; none befor
   assert.equal(lab["2025-05-31"], undefined);
   assert.equal(decodeLabel(lab["2026-09-30"]), "retained_top20");
   assert.equal(decodeLabel(lab["2026-11-12"]), "churned"); // 48 days since its last order (weekly orderer)
+});
+
+test("codes: upper case = on the Top 20% list whatever the lifecycle; old lower-case snapshots still read", () => {
+  assert.equal(encodeLabel("retained_top20"), "T");
+  assert.equal(encodeLabel("churned", true), "C");
+  assert.equal(encodeLabel("churned", false), "c");
+  assert.equal(encodeLabel("retained_rest"), "r");
+  assert.equal(decodeLabel("C"), "churned");
+  assert.equal(decodeLabel("T"), "retained_top20");
+  assert.equal(onListOf("C"), true);
+  assert.equal(onListOf("N"), true);
+  assert.equal(onListOf("c"), false);
+  assert.equal(onListOf("t"), true); // pre-2026-11-16 snapshot
+  assert.equal(onListOf("r"), false);
+  assert.equal(onListOf(undefined), false);
+  // The clinic in the test above is on the list at Sep 30 (still ordering) -> "T".
+  const lists = tierLists(revenue(), ["2026-09"]);
+  const lab = labelsFor(
+    { clinic: "10", firstOrder: "2025-06-02", orderDates: ["2025-06-02", "2026-09-20"], hasBaselineRevenue: true, hasWindowRevenue: true, priorRevenue: 1 },
+    ["2026-09-30"],
+    lists,
+  );
+  assert.equal(onListOf(lab["2026-09-30"]), lists.get("2026-09")!.top.has("10"));
+});
+
+test("standing in a window: on the list, label now and before, move", () => {
+  const labelAt = { "2026-09-30": "T", "2026-10-31": "T", "2026-11-15": "C" };
+  assert.deepEqual(standingIn(labelAt, { at: "2026-11-15", before: "2026-10-31" }), {
+    onList: true, cohort: "churned", prevCohort: "retained_top20", move: "down",
+  });
+  assert.deepEqual(standingIn(labelAt, { at: "2026-10-31", before: "2026-09-30" }), {
+    onList: true, cohort: "retained_top20", prevCohort: "retained_top20", move: null,
+  });
+  // No code at the date (first order later): not on the list.
+  assert.equal(standingIn(labelAt, { at: "2025-12-31", before: null })!.onList, false);
+  // Older snapshot without codes: null, so the caller keeps its own flag.
+  assert.equal(standingIn(undefined, { at: "2026-11-15", before: null }), null);
+  assert.equal(standingIn({}, { at: "2026-11-15", before: null }), null);
 });
 
 test("moves: up, down, neutral", () => {

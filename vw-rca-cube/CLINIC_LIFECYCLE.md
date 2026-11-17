@@ -241,3 +241,11 @@ Proposal with the data behind it: "Proposal: one definition of Top 20% clinics" 
   `clinicMeta.labelAt`), `clinics.ts drill()` (label for the window, `move`), `RepView.tsx` (`FocusTable`, `Standing`).
 - Known gap: the root-cause page's company tree (`bridge.ts`) still groups by the refresh window's label; the Overview,
   team and rep trees follow the window.
+- **List membership is stored too (2026-11-16):** a stored code in upper case (`T`, `N`, `A`, `C`) means the clinic is on
+  that month's Top 20% list, whatever its lifecycle; lower case means it is not. A big clinic that has churned or is new
+  is on the list but labelled Churned / New. Snapshots built before this are all lower case (only `t` means on the list).
+- **FZ cross-sell list:** "Top 20% only" now uses the same list as the Cohort column, as of the window's end
+  (`fzScores.clinics`), instead of the Cube's `is_top20_ytd`, so the button and the label agree in every window. Churned
+  and new top clinics stay in the list with their label (a churned top clinic with open FZ results is a win-back call);
+  every clinic list has a Cohort filter. Rows are sorted by open FZ results, then last-12-months revenue. On an older
+  engine the page keeps the Cube flag.
