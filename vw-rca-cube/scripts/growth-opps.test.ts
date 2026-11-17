@@ -144,7 +144,7 @@ test("regions: US states and countries, and an opportunity split across them", (
   assert.deepEqual(regionOf({ state: "ca", country: "US" }), { kind: "us", code: "CA" });
   assert.deepEqual(regionOf({ state: "ON", country: "CA" }), { kind: "intl", code: "CA" });
   const rows = [row("1", { state: "TX" }), row("2", { state: "TX" }), row("3", { state: "FL" })];
-  const o = resolve({ ...discover(inputs()).find(x => x.id === "low-aov")!, clinicIds: ["1", "2", "3"], n: 3, value: 1000, cur: 0, tgt: 100 });
+  const o = resolve({ ...discover(inputs()).find(x => x.id === "at-risk")!, clinicIds: ["1", "2", "3"], n: 3, value: 1000, cur: 0, tgt: 100 });
   const m = regionSplit(o, rows);
   assert.equal(m.get("us:TX"), 2000);
   assert.equal(m.get("us:FL"), 1000);
@@ -158,7 +158,7 @@ test("saved edits keep only known fields in range", () => {
 
 test("overlap: a clinic in two opportunities counts once, at the larger share", () => {
   const d = discover(inputs());
-  const a = resolve({ ...d.find(x => x.id === "low-aov")!, clinicIds: ["1", "2"], n: 2, value: 1000, cur: 0, tgt: 100 }); // 1000 each
+  const a = resolve({ ...d.find(x => x.id === "gz-lapsed")!, clinicIds: ["1", "2"], n: 2, value: 1000, cur: 0, tgt: 100 }); // 1000 each
   const b = resolve({ ...d.find(x => x.id === "at-risk")!, clinicIds: ["2", "3"], n: 2, value: 3000, cur: 0, tgt: 100 }); // 3000 each
   assert.equal(overlapAdjusted([a, b]), 1000 + 3000 + 3000);
   assert.equal(a.incr + b.incr, 8000);
@@ -264,4 +264,18 @@ test("lists 2 and 6 become opportunities when the patient lists are present", ()
   assert.equal(fu.value, 10 * 460);
   assert.equal(fu.tgt, 9);
   assert.equal(ds.find(x => x.id === "gut-stopped"), undefined);
+});
+
+test("a clinic claimed by baseline candidates is also removed from the lapsed Gut Zoomer row and the whitespace row", () => {
+  const inp = withBaselines();
+  inp.families = [{ clinic: "1", win: { "Foundation Zoomer": 1 } }, { clinic: "2", win: { "Hormone Zoomer": 2 } }];
+  inp.lapsed = [{ clinic: "1", orders: 3, gzRevenue: 6000, otherOrders: 1, lastOrder: "2025-09-01" }, { clinic: "9", orders: 3, gzRevenue: 2000, otherOrders: 0, lastOrder: "2025-02-01" }];
+  inp.whitespace = { pairs: 4, ids: ["2", "9"], valuePerPair: 500 };
+  const ds = discover(inp);
+  assert.deepEqual(ds.find(d => d.id === "baseline-candidates")!.clinicIds, ["1", "2"]);
+  assert.deepEqual(ds.find(d => d.id === "gz-lapsed")!.clinicIds, ["9"]);
+  const ws = ds.find(d => d.id === "whitespace")!;
+  assert.deepEqual(ws.clinicIds, ["9"]);
+  assert.equal(ws.n, 2); // pairs scale with the clinics that remain (4 pairs over 2 clinics, 1 left)
+  assert.equal(ws.annual, 2 * 500);
 });

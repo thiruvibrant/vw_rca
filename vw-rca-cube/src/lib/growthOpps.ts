@@ -258,7 +258,7 @@ export function discover(inp: Inputs): OppDef[] {
     }
   }
   if (inp.lapsed && inp.lapsed.some(l => l.gzRevenue !== undefined)) {
-    const ls = inp.lapsed;
+    const ls = inp.lapsed.filter(l => !claimed.has(l.clinic));
     const gz = sum(ls, l => l.gzRevenue ?? 0);
     if (ls.length && gz > 0) {
       out.push({
@@ -321,7 +321,10 @@ export function discover(inp: Inputs): OppDef[] {
         evidence: "Foundation Zoomer gut scores, with the conversion share taken from similar results. Gut Baseline is new, so its own conversion is not measured yet. This is the revenue of results open today, not a yearly run rate.", ready: "ready", defaultOwner: "Sales", annual: g.likely,
       });
   }
-  const ws = inp.whitespace;
+  // Whitespace counts clinic x family pairs and carries no pairs per clinic, so the pairs of the clinics that remain are scaled by their share.
+  const ws0 = inp.whitespace;
+  const wsIds = ws0 ? ws0.ids.filter(id => !claimed.has(id)) : [];
+  const ws = ws0 && ws0.ids.length ? { ...ws0, ids: wsIds, pairs: Math.round((ws0.pairs * wsIds.length) / ws0.ids.length) } : ws0;
   if (ws && ws.pairs > 0 && ws.valuePerPair > 0) {
     out.push({
       id: "whitespace", name: "Open whitespace families in marked clinics", pillar: "Product Growth", source: "scorecard", segment: "Clinics reps marked eligible that never ordered the family", unit: "pairs",
