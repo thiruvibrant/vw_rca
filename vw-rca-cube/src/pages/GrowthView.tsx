@@ -3,7 +3,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/lib/api";
 import { useRcaAction, useRcaQuery } from "@/lib/rca";
 import {
-  DEFAULT_WEIGHTS, DIMENSIONS, annualFactor, MATRIX, PILLARS, STATUSES, THRESHOLD, WEIGHT_KEYS, discover, overlapAdjusted, priority, recommendation, regionSplit, resolve,
+  BASELINES, DEFAULT_WEIGHTS, DIMENSIONS, annualFactor, MATRIX, PILLARS, STATUSES, THRESHOLD, WEIGHT_KEYS, discover, overlapAdjusted, priority, recommendation, regionSplit, resolve,
   type ClinicLite, type FzLite, type GutLite, type LapsedLite, type ProviderLite, type WhitespaceLite, type Opp, type Pillar, type Saved, type Status, type Weights,
 } from "@/lib/growthOpps";
 import { geoKeyOf } from "../../analytics/geoKey";
@@ -21,7 +21,7 @@ type Row = { opp: Opp; score: number; rec: ReturnType<typeof recommendation> | "
 
 /** The clinics behind one opportunity, in the scorecard's clinic list (same columns, same expandable clinic card). */
 function OppClinics({ opp, scope, onClose }: { opp: Opp; scope: string; onClose: () => void }) {
-  const fmts = { int: (n: number) => int(n), money: (n: number) => money(n), pct: (n: number) => `${n.toFixed(1)}%`, days: (n: number) => `${int(n)}d` };
+  const fmts = { int: (n: number) => int(n), money: (n: number) => money(n), pct: (n: number) => `${n.toFixed(1)}%`, days: (n: number) => `${int(n)}d`, offer: (n: number) => BASELINES[n - 1]?.baseline ?? "" };
   const extraCols = (opp.cols ?? []).map(c => ({ key: c.key, label: c.label, title: c.title, value: (clinic: string) => c.values[clinic] ?? 0, fmt: fmts[c.kind] }));
   const q = useRcaQuery(api.repView.rowsByFocus, { password: pw(), periodId: "all", sales: scope, focus: `ids:${opp.clinicIds.slice(0, 1500).join(",")}` });
   return (
@@ -336,8 +336,8 @@ export function GrowthView({ periods, teamLead }: { periods: ExecPeriod[]; teamL
       lost: gutRaw.lists.lost.filter(r => clinicIds.has(r.clinic)), noGut: gutRaw.lists.noGut.filter(r => clinicIds.has(r.clinic)),
       newPatients: gutRaw.lists.newPatients?.filter(r => clinicIds.has(r.clinic)), followUp: gutRaw.lists.followUp?.filter(r => clinicIds.has(r.clinic)),
     } } : gutRaw;
-    return discover({ windowDays, book: book as never, rows, lapsed, fz: fzLite, whitespace: pgx?.whitespace ?? null, providers, gut }).map(d => resolve(d, (st?.opps?.[d.id] ?? {}) as Saved));
-  }, [book, rows, lapsedRows, clinicIds, scope, windowDays, st?.opps, pgx, prov, fzLite, gutRaw]);
+    return discover({ windowDays, book: book as never, rows, lapsed, fz: fzLite, whitespace: pgx?.whitespace ?? null, providers, gut, families: pgd.data ? pgd.data.clinics.map(c => ({ clinic: c.clinic, win: c.win })) : null }).map(d => resolve(d, (st?.opps?.[d.id] ?? {}) as Saved));
+  }, [book, rows, lapsedRows, clinicIds, scope, windowDays, st?.opps, pgx, prov, fzLite, gutRaw, pgd.data]);
 
   const [pillar, setPillar] = useState<"All" | Pillar>("All");
   const [source, setSource] = useState<"all" | "scorecard" | "supporting">("all");
