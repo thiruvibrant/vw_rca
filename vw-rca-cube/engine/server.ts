@@ -261,7 +261,7 @@ function cors(req: http.IncomingMessage, res: http.ServerResponse) {
 // Compressed answers (2026-11-06): a whole-team Rep view book is ~1.6 MB of JSON; brotli (quality 4) makes it ~90 KB
 // in ~6 ms, which matters on the tunnel's upload leg. Only when the client says it accepts it; small answers go as-is.
 const accepts = new WeakMap<http.ServerResponse, string>();
-function send(res: http.ServerResponse, status: number, body: unknown) {
+function send(res: http.ServerResponse, status: number, body: unknown): number {
   const raw = Buffer.from(JSON.stringify(body));
   const ae = accepts.get(res) ?? "";
   const vary = res.getHeader("vary");
@@ -276,6 +276,15 @@ function send(res: http.ServerResponse, status: number, body: unknown) {
   }
   res.writeHead(status, headers);
   res.end(out);
+  return raw.length;
+}
+
+/** Calls slower than this are logged with their time and answer size (name, window and scope only; never the password). */
+const SLOW_RPC_MS = 1_500;
+function logSlow(name: string, args: Record<string, unknown>, ms: number, bytes: number, ok: boolean) {
+  if (ms < SLOW_RPC_MS && ok) return;
+  const where = [args.periodId, args.sales ?? args.scope ?? args.team].filter(x => typeof x === "string").join(" · ");
+  console.log(`rpc ${ok ? "slow" : "failed"}: ${name} ${ms}ms ${(bytes / 1024).toFixed(0)}KB${where ? ` · ${where}` : ""}`);
 }
 
 /** A problem with the request itself: answered with a clean 4xx instead of a 500 carrying an internal message. */
@@ -402,6 +411,7 @@ const server = http.createServer(async (req, res) => {
         } else if (s) await mirrorInto(current.host.db, cred, s);
       }
       let value: unknown;
+      const t0 = Date.now();
       try {
         if (camCalls && camMerge) {
           // One run per paired rep (a few at a time), merged into one answer.
@@ -415,9 +425,12 @@ const server = http.createServer(async (req, res) => {
         // Only guesses at the shared team password count: rep tokens are random and unguessable, and an office of reps behind one
         // address with expired sessions must not lock each other out.
         if (!cred.startsWith("rs:") && e instanceof Error && e.message.startsWith("Not authorized")) noteFail(client);
+        logSlow(name, args, Date.now() - t0, 0, false);
         throw e;
       }
-      return send(res, 200, { value: value === undefined ? null : value });
+      const bytes = send(res, 200, { value: value === undefined ? null : value });
+      logSlow(name, args, Date.now() - t0, bytes, true);
+      return;
     }
     send(res, 404, { error: "not found" });
   } catch (e) {

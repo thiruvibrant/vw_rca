@@ -113,7 +113,19 @@ export function baseUrl(): string {
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 /** One /load request, following Cube's "Continue wait" long-poll protocol. */
+/** A Cube query slower than this is logged (members and time, never filter values), to find what makes pages wait. */
+const SLOW_CUBE_MS = 5_000;
 async function loadOnce(query: CubeQuery): Promise<Row[]> {
+  const t0 = Date.now();
+  const rows = await loadOnceInner(query);
+  const ms = Date.now() - t0;
+  if (ms >= SLOW_CUBE_MS) {
+    const members = [...(query.measures ?? []), ...(query.dimensions ?? [])].join(",");
+    console.log(`cube slow: ${ms}ms · ${rows.length} rows · ${members.slice(0, 200)}${query.filters?.length ? ` · ${query.filters.length} filters` : ""}`);
+  }
+  return rows;
+}
+async function loadOnceInner(query: CubeQuery): Promise<Row[]> {
   const deadline = Date.now() + 120_000;
   for (;;) {
     const res = await fetch(`${baseUrl()}/cubejs-api/v1/load`, {
