@@ -76,10 +76,14 @@ export type GutLite = {
 };
 
 /** An extra number column for the clinic list behind an opportunity: one value per clinic. */
-export type OppCol = { key: string; label: string; title?: string; kind: "int" | "money" | "pct" | "days"; values: Record<string, number> };
+export type OppCol = { key: string; label: string; title?: string; kind: "int" | "money" | "pct" | "days" | "offer"; values: Record<string, number> };
+
+/** One clinic's orders per product family in the analysis window (the page's product-mix data). */
+export type FamLite = { clinic: string; win: Record<string, number> };
 
 export type Inputs = {
   gut?: GutLite | null;
+  families?: FamLite[] | null;
   windowDays: number;
   book: BookLite | null;
   rows: ClinicLite[] | null;
@@ -156,21 +160,74 @@ export const topQuartile = (xs: number[]): number => {
   return s.length ? s[Math.floor(s.length * 0.75)] : 0;
 };
 
+/** The baseline tests a clinic that has only tried the matching Zoomer can be offered, in the order ties are broken. */
+export const BASELINES = [
+  { family: "Gut Zoomer", baseline: "Gut Baseline", price: 460 },
+  { family: "Foundation Zoomer", baseline: "Foundation Baseline", price: 400 },
+  { family: "Hormone Zoomer", baseline: "Hormone Baseline", price: 420 },
+] as const;
+export type BaselineCandidate = { clinic: string; family: string; orders: number; baseline: string; price: number; index: number };
+
+const familyOrders = (win: Record<string, number>, family: string): number =>
+  Object.entries(win).reduce((t, [k, n]) => (k.toLowerCase() === family.toLowerCase() ? t + n : t), 0);
+
+/**
+ * Low-AOV clinics that ordered a trial Zoomer once or twice in the window, with the baseline to offer. A clinic on any of Thiru's six lists is
+ * left to that list, and without his lists loaded there are no candidates (they could claim clinics his lists then claim).
+ */
+export function baselineCandidates(inp: Inputs): BaselineCandidate[] {
+  const b = inp.book;
+  const fams = inp.families;
+  const gut = inp.gut;
+  if (!b || !fams || !gut) return [];
+  const L = gut.lists;
+  const thiru = new Set([...L.stopped, ...(L.newPatients ?? []), ...L.similar, ...L.lost, ...L.noGut, ...(L.followUp ?? [])].map(r => r.clinic));
+  const low = new Set(b.opp.lowAov.ids);
+  const out: BaselineCandidate[] = [];
+  for (const f of fams) {
+    if (!low.has(f.clinic) || thiru.has(f.clinic)) continue;
+    let best: { i: number; orders: number } | null = null;
+    BASELINES.forEach((x, i) => {
+      const o = familyOrders(f.win, x.family);
+      if (o >= 1 && o <= 2 && (!best || o > best.orders)) best = { i, orders: o };
+    });
+    if (best) {
+      const x = BASELINES[(best as { i: number }).i];
+      out.push({ clinic: f.clinic, family: x.family, orders: (best as { orders: number }).orders, baseline: x.baseline, price: x.price, index: (best as { i: number }).i });
+    }
+  }
+  return out;
+}
+
 export function discover(inp: Inputs): OppDef[] {
   const A = annualFactor(inp.windowDays);
   const out: OppDef[] = [];
   const byId = new Map((inp.rows ?? []).map(r => [r.clinic, r]));
   const b = inp.book;
 
-  if (b && b.opp.lowAov.n > 0) {
-    const gap = b.opp.lowAov.up * A;
+  // Clinics that tried a Zoomer once or twice and run a low AOV: offer the baseline. They are claimed here, so the rows that would pitch them
+  // a product (FZ results, the new-clinic nurture pool) leave them out.
+  const cands = baselineCandidates(inp);
+  const claimed = new Set(cands.map(c => c.clinic));
+  if (cands.length) {
+    const reference = BASELINES.map(x => {
+      const buyers = (inp.families ?? []).map(f => familyOrders(f.win, x.family)).filter(o => o >= 3);
+      return buyers.length ? (sum(buyers, o => o) / buyers.length) * A : 0;
+    });
+    const annual = sum(cands, c => c.price * reference[c.index]);
+    const count = (i: number) => cands.filter(c => c.index === i).length;
+    const mix = BASELINES.map((x, i) => `${count(i)} ${x.baseline}`).join(", ");
     out.push({
-      id: "low-aov", name: "Lift the AOV of low-AOV clinics", pillar: "Bundle growth", source: "scorecard", segment: "Ordering clinics under $400 AOV",
-      indicator: "Low-AOV customers", indicatorValue: `${b.opp.lowAov.n.toLocaleString("en-US")} clinics · ${money(gap)} a year to $400`, metric: "AOV", from: "",
-      clinicIds: b.opp.lowAov.ids, n: b.opp.lowAov.n, cur: 0, tgt: 50, rateLabel: "share of the gap to $400 AOV closed", value: gap / b.opp.lowAov.n,
-      observation: `${b.opp.lowAov.n.toLocaleString("en-US")} ordering clinics average under $400 an order. Lifting each to $400 on the orders they place now is worth ${money(gap)} a year.`,
-      intervention: "A bundle offer on the order flow and a rep playbook for the clinics closest to $400, with bundle share tracked per rep.",
-      evidence: "The scorecard's Low-AOV customers indicator, annualized from the analysis window.", ready: "ready", defaultOwner: "Sales", annual: gap,
+      id: "baseline-candidates", name: "Offer a baseline test to low-AOV clinics that tried a Zoomer", pillar: "Product Growth", source: "supporting", segment: "Under $400 AOV, 1–2 orders of Gut, Foundation or Hormone Zoomer, on none of Thiru's lists",
+      indicator: "Low-AOV customers · tried a Zoomer", indicatorValue: `${cands.length.toLocaleString("en-US")} clinics · ${money(annual)} a year if all adopt`, metric: "AOV",
+      from: "Product mix per clinic and the scorecard's Low-AOV customers", clinicIds: cands.map(c => c.clinic), n: cands.length, cur: 0, tgt: 10, rateLabel: "share of clinics that start ordering a baseline", value: annual / cands.length,
+      observation: `${cands.length.toLocaleString("en-US")} clinics average under $400 an order and ordered Gut, Foundation or Hormone Zoomer only once or twice. They have shown interest but not committed, so a lower-priced baseline is a natural next step: ${mix}.`,
+      intervention: "A rep call per clinic offering the baseline that matches its trial: Gut Baseline ($460), Foundation Baseline ($400) or Hormone Baseline ($420).",
+      evidence: "Orders per product family in the analysis window, for the clinics in the scorecard's Low-AOV customers indicator that are on none of Thiru's lists. The value is the baseline price times the yearly orders of clinics that order that Zoomer 3+ times; a family nobody orders that often counts as 0. Only extra orders count: a clinic that swaps a Zoomer for a cheaper baseline lowers revenue. Foundation and Hormone Baseline are new, so their own adoption is not measured yet.", ready: "partial", defaultOwner: "Sales", annual,
+      cols: [
+        { key: "blTrial", label: "Zoomer orders", title: "Orders of the trial Zoomer in the analysis window", kind: "int", values: Object.fromEntries(cands.map(c => [c.clinic, c.orders])) },
+        { key: "blOffer", label: "Offer", title: "The baseline that matches the Zoomer the clinic tried", kind: "offer", values: Object.fromEntries(cands.map(c => [c.clinic, c.index + 1])) },
+      ],
     });
   }
   if (b && b.opp.atRisk.n > 0) {
@@ -214,7 +271,9 @@ export function discover(inp: Inputs): OppDef[] {
       });
     }
   }
-  const nu = b?.opp.nurture;
+  const nu0 = b?.opp.nurture;
+  const nuIds = nu0 ? nu0.ids.filter(id => !claimed.has(id)) : [];
+  const nu = nu0 ? { n: nuIds.length, up: nu0.n > 0 ? (nu0.up * nuIds.length) / nu0.n : 0, ids: nuIds } : undefined;
   if (b && nu && nu.n > 0) {
     // One order's value per stuck clinic, carried to a year at the book's orders per clinic (annualized): what a clinic that keeps ordering brings in.
     const oneOrder = nu.up / nu.n;
@@ -230,7 +289,7 @@ export function discover(inp: Inputs): OppDef[] {
   }
   // Foundation Zoomer results that point to a Zoomer the clinic has not ordered: Gut (Gut Baseline or Gut Zoomer) on its own row, and the
   // other Zoomers together on another, so a clinic's Gut and non-Gut results are not counted twice.
-  const fz = inp.fz;
+  const fz = inp.fz ? { ...inp.fz, clinics: inp.fz.clinics.filter(c => !claimed.has(c.clinic)) } : inp.fz;
   if (fz && fz.clinics.length) {
     const area = (r: FzClinicLite, gut: boolean) => r.products.filter(p => (p.area === "Gut") === gut && p.open > 0);
     const build = (gut: boolean) => {

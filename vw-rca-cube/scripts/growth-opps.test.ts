@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { cleanSaved } from "../convex/growth.ts";
 import { providerCandidates } from "../analytics/growth.ts";
-import { annualFactor, overlapAdjusted, DEFAULT_WEIGHTS, discover, priority, recommendation, regionOf, regionSplit, resolve, revenueScore, topQuartile, type ClinicLite, type Inputs } from "../src/lib/growthOpps.ts";
+import { annualFactor, baselineCandidates, overlapAdjusted, DEFAULT_WEIGHTS, discover, priority, recommendation, regionOf, regionSplit, resolve, revenueScore, topQuartile, type ClinicLite, type Inputs } from "../src/lib/growthOpps.ts";
 
 const row = (clinic: string, o: Partial<ClinicLite> = {}): ClinicLite => ({ clinic, name: `C${clinic}`, state: "CA", sales: "R", actual: 100, expected: 100, baseline: 1000, orders: 5, aov: 300, daysSinceTouch: null, ...o });
 const inputs = (): Inputs => ({
@@ -17,14 +17,82 @@ test("the annual factor scales a window to a year", () => {
   assert.ok(Math.abs(annualFactor(182) - 2.0055) < 0.001);
 });
 
-test("low-AOV and at-risk are sized from the scorecard's own indicator, annualized", () => {
+test("at-risk is sized from the scorecard's own indicator, annualized, and low-AOV is replaced by baseline candidates", () => {
   const ds = discover(inputs());
-  const low = ds.find(d => d.id === "low-aov")!;
-  assert.equal(low.n, 3);
-  assert.ok(Math.abs(low.n * low.value - 3000 * annualFactor(182)) < 1e-6);
+  assert.equal(ds.some(d => d.id === "low-aov"), false);
   const risk = ds.find(d => d.id === "at-risk")!;
+  assert.equal(risk.n, 2);
+  assert.ok(Math.abs(risk.n * risk.value - 500 * annualFactor(182)) < 1e-6);
   assert.equal(risk.source, "scorecard");
   assert.equal(risk.pillar, "Retention");
+});
+
+/** Low-AOV clinics 1, 2, 3 and 5; clinic 4 is not low-AOV. Clinic 5 is on one of Thiru's lists. */
+const withBaselines = (): Inputs => ({
+  ...inputs(),
+  book: { opp: { atRisk: { n: 2, up: 500, ids: ["1", "2"] }, lowAov: { n: 4, up: 3000, ids: ["1", "2", "3", "5"] }, nurture: { n: 4, up: 800, ids: ["1", "2", "6", "7"] } }, kpi: { churned: 4, churnedIds: ["7", "8"], reactivatedCount: 1 } },
+  families: [
+    { clinic: "1", win: { "Gut Zoomer": 2 } },
+    { clinic: "2", win: { "Foundation Zoomer": 1, "Gut Zoomer": 2, "Non Zoomer": 9 } },
+    { clinic: "3", win: { "Gut Zoomer": 3 } },
+    { clinic: "4", win: { "Gut Zoomer": 1 } },
+    { clinic: "5", win: { "Gut Zoomer": 1 } },
+    { clinic: "20", win: { "Gut Zoomer": 4 } },
+    { clinic: "21", win: { "Gut Zoomer": 6 } },
+  ],
+  gut: { asOf: "2026-11-10", lists: { refGzOrdersYear: 0, stopped: [], similar: [], lost: [], noGut: [{ clinic: "5", zoomers: [], hadGz: false }], newPatients: [], followUp: [] } },
+  fz: { clinics: [
+    { clinic: "1", products: [{ area: "Hormone", open: 1, low: 400, high: 500, likely: 100 }] },
+    { clinic: "9", products: [{ area: "Hormone", open: 1, low: 400, high: 500, likely: 100 }] },
+  ] },
+});
+
+test("baseline candidates: low-AOV clinics with 1 or 2 orders of a trial Zoomer, after Thiru's lists", () => {
+  const c = baselineCandidates(withBaselines());
+  assert.deepEqual(c.map(x => x.clinic), ["1", "2"]); // 3 has 3 orders, 4 is not low-AOV, 5 is on a Thiru list
+  assert.deepEqual(c.map(x => [x.baseline, x.price, x.orders]), [["Gut Baseline", 460, 2], ["Gut Baseline", 460, 2]]);
+});
+
+test("a clinic with trials in two families is listed once, a tie goes Gut, Foundation, Hormone, and family keys ignore case", () => {
+  const inp = withBaselines();
+  inp.families = [{ clinic: "1", win: { "foundation zoomer": 1, "hormone zoomer": 1 } }, { clinic: "2", win: { "Hormone Zoomer": 2, "Foundation Zoomer": 1 } }];
+  const c = baselineCandidates(inp);
+  assert.deepEqual(c.map(x => [x.clinic, x.baseline, x.price]), [["1", "Foundation Baseline", 400], ["2", "Hormone Baseline", 420]]);
+});
+
+test("without Thiru's lists loaded there is no baseline row, and the other rows are untouched", () => {
+  const inp = { ...withBaselines(), gut: null };
+  const ds = discover(inp);
+  assert.equal(ds.some(d => d.id === "baseline-candidates"), false);
+  assert.equal(ds.find(d => d.id === "fz-targets")!.n, 2);
+});
+
+test("baseline sizing: price x the yearly orders of clinics that order the family 3+ times, 10% default, a family nobody buys 3+ times counts 0", () => {
+  const d = discover(withBaselines()).find(x => x.id === "baseline-candidates")!;
+  const A = annualFactor(182);
+  const ref = ((4 + 6 + 3) / 3) * A; // clinics 20, 21 and 3 order Gut Zoomer 3+ times
+  assert.ok(Math.abs(d.annual - 2 * 460 * ref) < 1e-6);
+  assert.ok(Math.abs(d.n * d.value - d.annual) < 1e-6);
+  assert.equal(d.tgt, 10);
+  assert.equal(d.cur, 0);
+  assert.equal(d.pillar, "Product Growth");
+  const none = withBaselines();
+  none.families = [{ clinic: "1", win: { "Hormone Zoomer": 1 } }];
+  assert.equal(discover(none).find(x => x.id === "baseline-candidates")!.annual, 0);
+});
+
+test("a clinic claimed by baseline candidates is removed from the FZ rows and the nurture pool, and from nowhere else", () => {
+  const ds = discover(withBaselines());
+  const bl = new Set(ds.find(d => d.id === "baseline-candidates")!.clinicIds);
+  assert.deepEqual([...bl].sort(), ["1", "2"]);
+  for (const id of ["fz-targets", "gut-fz", "second-order"]) {
+    const d = ds.find(x => x.id === id);
+    if (d) for (const c of d.clinicIds) assert.equal(bl.has(c), false, `${id} still has ${c}`);
+  }
+  const nu = ds.find(d => d.id === "second-order")!;
+  assert.equal(nu.n, 2);
+  assert.ok(Math.abs(nu.value - (800 / 4) * annualFactor(182)) < 1e-6); // one order's value per clinic is unchanged
+  assert.deepEqual(ds.find(d => d.id === "at-risk")!.clinicIds, ["1", "2"]); // recency rows are untouched
 });
 
 test("incremental revenue follows clinics × (target − current) × value, and the target is editable", () => {
