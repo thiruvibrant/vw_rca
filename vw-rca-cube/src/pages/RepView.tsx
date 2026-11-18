@@ -2328,7 +2328,7 @@ function useCellContrib(b: Book, pg: PGStats | null, pgd: ReturnType<typeof useP
     const set = new Set(ids);
     const inList = (r: ContribRow) => set.has(r.clinic);
     if (label === "At-risk customers")
-      return { universe: b => b.existingIds ?? [], f: r => (inList(r) ? -1 : 1), unit: "clinics", amount: r => (inList(r) ? Math.min(r.realChange, 0) : 0), up: "Not at risk", down: "At risk: slipping or well under baseline", note: "Existing clinics running late against their own order rhythm that are at least 10% below baseline and flagged slipping, overdue or bleeding. The dollar figure is their real shortfall below baseline; the rest are on rhythm." };
+      return { universe: b => b.existingIds ?? [], f: r => (inList(r) ? -1 : 1), unit: "clinics", amount: r => (inList(r) ? Math.min(r.realChange, 0) : 0), up: "Not at risk", down: "At risk: late against its own rhythm and below baseline", note: "Existing clinics running late against their own order rhythm that are at least 10% below baseline and flagged slipping, overdue or bleeding. The dollar figure is their real shortfall below baseline; the rest are on rhythm." };
     if (label === "Low-AOV customers")
       return { universe: b => b.activeIds ?? [], f: r => (inList(r) ? -1 : 1), unit: "clinics", up: "AOV at or above $400", down: "AOV under $400", note: "Clinics that ordered in this window, split by whether their average order is under $400." };
     if (label === "Cross-sell candidates" && isFzFamily(family) && fz?.ready) return fzContrib(fz);

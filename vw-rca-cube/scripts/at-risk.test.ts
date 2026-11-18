@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isAtRisk, type AtRiskInput } from "../analytics/atRisk.ts";
+import { isAtRisk, isAtRiskInWindow, type AtRiskInput } from "../analytics/atRisk.ts";
 import { buyingGapP90 } from "../analytics/flags.ts";
 
 const SLIP = "⚠️ Slipping Away (Late)";
@@ -17,9 +17,12 @@ test("on its own cadence is not at risk, and a long natural cadence at day 35 is
   assert.equal(isAtRisk(base({ daysSinceLast: 70, medianGapBd: 30, p90GapBd: 40, bdSinceLastOrder: 50 })), true); // past 1.5 x its gap and its longest usual gap
 });
 
-test("a lumpy clinic is allowed its longest usual gap", () => {
-  assert.equal(isAtRisk(base({ p90GapBd: 20, bdSinceLastOrder: 15 })), false);
-  assert.equal(isAtRisk(base({ p90GapBd: 20, bdSinceLastOrder: 21 })), true);
+test("a lumpy clinic is allowed its longest usual gap, but never more than two missed intervals", () => {
+  assert.equal(isAtRisk(base({ p90GapBd: 8, bdSinceLastOrder: 8 })), false); // 1.5 x 5 = 7.5, its p90 is 8
+  assert.equal(isAtRisk(base({ p90GapBd: 8, bdSinceLastOrder: 9 })), true);
+  // an old lapse gives a p90 of 43 business days; it is capped at 2 x the median gap (10), so the clinic can still be at risk
+  assert.equal(isAtRisk(base({ p90GapBd: 43, bdSinceLastOrder: 9 })), false);
+  assert.equal(isAtRisk(base({ p90GapBd: 43, bdSinceLastOrder: 11 })), true);
 });
 
 test("before the p90 gap is stored, 1.5 x the median alone applies", () => {
@@ -64,4 +67,14 @@ test("buyingGapP90: nearest-rank 90th percentile of business-day gaps, 3+ distin
   assert.equal(buyingGapP90(["2026-09-07", "2026-09-14"], "2026-10-05"), undefined);
   assert.equal(buyingGapP90(["2026-09-07", "2026-09-07", "2026-09-14"], "2026-10-05"), undefined); // two distinct dates
   assert.equal(buyingGapP90(["2026-09-14", "2026-09-07", "2026-09-28", "2026-12-01"], "2026-10-05"), 10); // dates after the cutoff are ignored
+});
+
+test("the same clinics are at risk on every tab: the shortfall test uses the whole analysis window, not the tab", () => {
+  const whole = { health: [SLIP], baseline: 9100, realChange: -2000 }; // 22% under baseline over the whole window
+  const row = (baseline: number, realChange: number) => ({ ...base(), baseline, realChange, health: ["✅ Healthy"] });
+  // week tab (strong shortfall), month tab (small), all tab (above baseline): one answer, taken from the whole window
+  for (const [b, r] of [[700, -700], [3000, -200], [9100, 500]]) assert.equal(isAtRiskInWindow(row(b, r), whole), true);
+  assert.equal(isAtRiskInWindow(row(700, -700), { ...whole, realChange: 500 }), false);
+  // without a whole-window row the tab's own numbers are used
+  assert.equal(isAtRiskInWindow({ ...base(), realChange: -300 }, undefined), true);
 });

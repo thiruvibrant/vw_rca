@@ -8,8 +8,8 @@ Approved in conversation, 17 Nov 2026 ("agree with all 4 points, across all page
 ## The rule (replaces "last order 5-44 days ago and a slipping/overdue/risk/ghost/drop flag")
 An existing clinic is at risk when all of these hold:
 1. It last ordered 5 or more days ago and has not churned (the clinic's own churn status, `life !== "churned"`; with no status, under 45 days as before).
-2. It is late against its own rhythm: business days since its last order are more than 1.5 x its median gap (gap floored at 2) and more than its 90th-percentile gap (a clinic that orders in bursts is allowed its longer gaps). A clinic with under three order dates has no rhythm; for it the old fixed 5-44 day window applies.
-3. It is below its baseline by at least 10% of the baseline in the window (a real shortfall, so the clinic count and the dollars agree).
+2. It is late against its own rhythm: business days since its last order are more than 1.5 x its median gap (gap floored at 2) and more than its 90th-percentile gap, capped at two median gaps (a clinic that orders in bursts is allowed longer gaps, but an old lapse cannot push "late" past the churn line). A clinic with under three order dates has no rhythm; for it the old fixed 5-44 day window applies.
+3. It is below its baseline by at least 10% of the baseline over the whole analysis window (the "all" row, so the same clinics are at risk on every tab; the dollars still follow the tab).
 4. It carries at least one of the existing health flags Slipping Away, Buying Overdue or a Bleed (drop) flag. Ghosted VIP no longer counts: it is a no-contact problem and the Growth page's "Re-engage high-value clinics with no recent call or meeting" row covers it.
 
 ## Goals
@@ -31,3 +31,7 @@ An existing clinic is at risk when all of these hold:
 
 ## Judgment calls (mine)
 - 10% minimum shortfall; 1.5 x median; the flag gate stays (minus Ghosted VIP) rather than being replaced by the cadence test alone.
+
+## Review changes (17 Nov 2026)
+- The 10% shortfall test and the flags use the whole-window row, not the tab (the tab's own numbers made the count swing, which 2026-10-18 had removed on purpose).
+- The p90 allowance is capped at 2 x the median gap (all-time gaps made some clinics skip at-risk before churn).

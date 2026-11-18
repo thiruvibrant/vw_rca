@@ -9,7 +9,9 @@ export const AT_RISK = {
   fixedMaxDays: 45,
   /** Late = business days since the last order past this many times the clinic's median gap (gap floored at 2) ... */
   lateRatio: 1.5,
-  /** ... and past its own 90th-percentile gap, when known. */
+  /** ... and past its own 90th-percentile gap, when known, but never asking for more than this many median gaps (two missed intervals), so an old lapse cannot push "late" past the churn line. */
+  maxLateRatio: 2,
+  /** A real shortfall: at least this share of the baseline, over the whole analysis window. */
   minShortfall: 0.1,
 } as const;
 
@@ -37,5 +39,17 @@ export function isAtRisk(i: AtRiskInput): boolean {
   if (!(i.baseline > 0) || -i.realChange < AT_RISK.minShortfall * i.baseline) return false;
   if (!i.health.some(h => FLAGS.test(h))) return false;
   if (i.medianGapBd === undefined || i.bdSinceLastOrder === undefined) return d < AT_RISK.fixedMaxDays;
-  return i.bdSinceLastOrder > Math.max(AT_RISK.lateRatio * Math.max(i.medianGapBd, 2), i.p90GapBd ?? 0);
+  const gap = Math.max(i.medianGapBd, 2);
+  return i.bdSinceLastOrder > Math.min(Math.max(AT_RISK.lateRatio * gap, i.p90GapBd ?? 0), AT_RISK.maxLateRatio * gap);
+}
+
+/** The clinic's flags, baseline and real change over the whole analysis window (the "all" tab's row). */
+export type WholeWindow = { health: readonly string[]; baseline: number; realChange: number };
+
+/**
+ * `isAtRisk` with the shortfall and flags taken from the whole analysis window, so the same clinics are at risk on every tab
+ * (a short tab's own baseline and shortfall swing too much). Without a whole-window row the tab's own numbers are used.
+ */
+export function isAtRiskInWindow(row: AtRiskInput, whole?: WholeWindow): boolean {
+  return isAtRisk({ ...row, baseline: whole?.baseline ?? row.baseline, realChange: whole?.realChange ?? row.realChange, health: whole?.health ?? row.health });
 }
