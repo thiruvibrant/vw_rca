@@ -1,0 +1,46 @@
+# At-risk customers: cadence-aware definition (short design)
+
+Approved in conversation, 17 Nov 2026 ("agree with all 4 points, across all pages").
+
+## Intent
+"At-risk customers" counts clinics that are healthy but late, flat or lumpy. It must count only clinics that are really slipping, on every page (scorecard, rep view, Growth page), because they all read one definition: `atRiskRows` in `analytics/repView.ts`.
+
+## The rule (replaces "last order 5-44 days ago and a slipping/overdue/risk/ghost/drop flag")
+An existing clinic is at risk when all of these hold:
+1. It last ordered 5 or more days ago and has not churned (the clinic's own churn status, `life !== "churned"`; with no status, under 45 days as before).
+2. It is late against its own rhythm: business days since its last order are more than 1.5 x its median gap (gap floored at 2) and more than its 90th-percentile gap, capped at two median gaps (a clinic that orders in bursts is allowed longer gaps, but an old lapse cannot push "late" past the churn line). A clinic with under three order dates has no rhythm; for it the old fixed 5-44 day window applies.
+3. It is below its baseline by at least 10% of the baseline over the whole analysis window (the "all" row, so the same clinics are at risk on every tab; the dollars still follow the tab).
+4. It carries at least one of the existing health flags Slipping Away, Buying Overdue or a Bleed (drop) flag. Ghosted VIP no longer counts: it is a no-contact problem and the Growth page's "Re-engage high-value clinics with no recent call or meeting" row covers it.
+
+## Goals
+- One pure function `isAtRisk` with tests; `atRiskRows` uses it; all pages follow without further logic.
+- Help text on every page describes the new rule.
+- A new optional per-clinic `p90GapBd` is stored beside `medianGapBd` and filled by the next refresh; until then the rule uses 1.5 x median only.
+
+## Non-goals
+- No change to the health flags shown on clinic badges, or to churn, or to dollar sizing (shortfall = baseline - actual, annualized).
+- No change to the 35% default target on the Growth page.
+
+## Constraints
+- Additive schema change only (optional field); needs an engine redeploy and a data refresh.
+- The scorecard's At-risk numbers will drop. That is intended; counts before and after should be compared once deployed.
+
+## Approaches considered
+1. Pure rule function in its own file, called from `atRiskRows` (chosen): testable without the engine.
+2. Edit the filter inline in `repView.ts`: rejected, untestable here and easy to drift.
+
+## Judgment calls (mine)
+- 10% minimum shortfall; 1.5 x median; the flag gate stays (minus Ghosted VIP) rather than being replaced by the cadence test alone.
+
+## Review changes (17 Nov 2026)
+- The 10% shortfall test and the flags use the whole-window row, not the tab (the tab's own numbers made the count swing, which 2026-10-18 had removed on purpose).
+- The p90 allowance is capped at 2 x the median gap (all-time gaps made some clinics skip at-risk before churn).
+
+## Second revision (18 Nov 2026), after a second independent comparison with Buying Overdue
+- No flag gate for a clinic with a rhythm. Buying Overdue is the churn line restated (3 x the median gap), and the other flags that fire earlier are only the Bleed ones, so a flag requirement hid the clinics that give the most warning (median gap 14+ days: Buying Overdue gives 0-4 days of lead time). Lateness and shortfall decide. Clinics with under 3 order dates keep the fixed 5-44 day window and the slipping/overdue/bleed flag gate.
+- The p90 allowance is now taken over the last 12 months only, needs 10+ gaps (else not used), and is capped at 80% of the clinic's churn line in business days (max(31, 3 x median)), replacing the 2 x median cap. This lets a bursty buyer (three days in a row, then five weeks off) keep its usual lull without letting an old lapse push "late" past churn.
+- Not done: showing the reason on the list ("17 business days quiet, usually 5"). Fixed since: the Call-first chip counts now use the same window as the Call-first list (analytics/callFirst.ts); they had been left on the old 5-44 day window.
+
+## Third revision (18 Nov 2026)
+- The "Churned / Lost" health badge follows the clinic's own churn status (`life`, the scorecard's churn line: max(45 days, 3 x its usual gap)) when known, so a clinic is not "Churned / Lost" on one screen and active on another (a clinic 77 days quiet with a usual gap of 46 days is not churned until day 138). A not-yet-churned clinic 31+ days quiet is Slipping Away. With no status the old fixed 60-day rule applies. Fast clinics past 45 days now show Churned / Lost (they already count as churned on the churn dial) instead of Slipping Away until day 60.
+- The Call-first "At risk" chip is "At risk · top 20%": the at-risk clinics in the scorecard's "Active, top 20%" group (`retained_top20`, company-wide), so the tag, the card and the chip agree. (A first version took the top 20% of each rep's own book by baseline; for a strong book that was a higher bar than the tag, so three tagged clinics showed as one.) The At-risk card still counts all at-risk clinics.

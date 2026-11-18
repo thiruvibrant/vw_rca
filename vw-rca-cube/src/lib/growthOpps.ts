@@ -76,7 +76,14 @@ export type GutLite = {
 };
 
 /** An extra number column for the clinic list behind an opportunity: one value per clinic. */
-export type OppCol = { key: string; label: string; title?: string; kind: "int" | "money" | "pct" | "days" | "offer"; values: Record<string, number> };
+export type OppCol = { key: string; label: string; title?: string; kind: "int" | "money" | "pct" | "days" | "label"; values: Record<string, number>; /** For kind "label": the value is a 1-based index into these. */ labels?: readonly string[] };
+
+/** The Business Feed's Total Tox -> Toxin Zoomer switch list (the engine's families:switchClinicsAction): counts and net dollars against baseline for every group, rows capped per group. */
+export type SwitchLite = {
+  counts: Record<string, number>;
+  groupDelta: Record<string, number>;
+  rows: Array<{ clinic: string; klass: string; downDelta: number; upDelta: number; netDelta: number }>;
+};
 
 /** One clinic's orders per product family in the analysis window (the page's product-mix data). */
 export type FamLite = { clinic: string; win: Record<string, number> };
@@ -84,6 +91,7 @@ export type FamLite = { clinic: string; win: Record<string, number> };
 export type Inputs = {
   gut?: GutLite | null;
   families?: FamLite[] | null;
+  switchers?: SwitchLite | null;
   windowDays: number;
   book: BookLite | null;
   rows: ClinicLite[] | null;
@@ -226,7 +234,7 @@ export function discover(inp: Inputs): OppDef[] {
       evidence: "Orders per product family in the analysis window, for the clinics in the scorecard's Low-AOV customers indicator that are on none of the Gut Zoomer lists. The value is the baseline price times the yearly orders of clinics that order that Zoomer 3+ times; a family nobody orders that often counts as 0. Only extra orders count: a clinic that swaps a Zoomer for a cheaper baseline lowers revenue. Foundation and Hormone Baseline are new, so their own adoption is not measured yet.", ready: "partial", defaultOwner: "Sales", annual,
       cols: [
         { key: "blTrial", label: "Zoomer orders", title: "Orders of the trial Zoomer in the analysis window", kind: "int", values: Object.fromEntries(cands.map(c => [c.clinic, c.orders])) },
-        { key: "blOffer", label: "Offer", title: "The baseline that matches the Zoomer the clinic tried", kind: "offer", values: Object.fromEntries(cands.map(c => [c.clinic, c.index + 1])) },
+        { key: "blOffer", label: "Offer", title: "The baseline that matches the Zoomer the clinic tried", kind: "label", labels: BASELINES.map(x => x.baseline), values: Object.fromEntries(cands.map(c => [c.clinic, c.index + 1])) },
       ],
     });
   }
@@ -236,9 +244,9 @@ export function discover(inp: Inputs): OppDef[] {
       id: "at-risk", name: "Recover at-risk clinics", pillar: "Retention", source: "scorecard", segment: "Existing clinics slipping before the churn line",
       indicator: "At-risk customers", indicatorValue: `${b.opp.atRisk.n.toLocaleString("en-US")} clinics · ${money(short)} a year below baseline`, metric: "Revenue Retention", from: "",
       clinicIds: b.opp.atRisk.ids, n: b.opp.atRisk.n, cur: 0, tgt: 35, rateLabel: "share of the shortfall below baseline recovered", value: short / b.opp.atRisk.n,
-      observation: `${b.opp.atRisk.n.toLocaleString("en-US")} existing clinics last ordered 5–44 days ago and are flagged slipping, overdue, at risk, ghosted or dropping. They run ${money(short)} a year below their baseline.`,
+      observation: `${b.opp.atRisk.n.toLocaleString("en-US")} existing clinics are running late against their own order rhythm, are at least 10% below baseline. They run ${money(short)} a year below their baseline.`,
       intervention: "A weekly call list ranked by dollars below baseline, worked by the clinic owner before the 45-day churn line.",
-      evidence: "The scorecard's At-risk customers indicator, annualized from the analysis window.", ready: "ready", defaultOwner: "Sales", annual: short,
+      evidence: "The scorecard's At-risk customers indicator, annualized from the analysis window. A clinic is at risk only when it is late against its own order rhythm; one on its usual cadence, above baseline, or merely not called is not.", ready: "ready", defaultOwner: "Sales", annual: short,
     });
   }
   if (b && b.kpi.churnedIds.length > 0 && inp.rows) {
@@ -347,6 +355,36 @@ export function discover(inp: Inputs): OppDef[] {
       intervention: "Ask the rep to re-introduce the program to the dormant providers on the next clinic visit.",
       evidence: "Providers ordering per clinic over 24 months against the last 90 days. The share that return is an assumption to validate.", ready: "ready", defaultOwner: "Sales", annual: rev,
     });
+  }
+  // Is Toxin Zoomer offsetting the Total Tox downfall? (Business Feed). The clinics that dropped Total Tox against baseline and did not move over:
+  // not moved over, down on both, or partly moved. "Moved over" is already offset; "flat or up" and "Toxin Zoomer only" have no drop to recover.
+  const sw = inp.switchers;
+  if (sw) {
+    const groups = ["stayed", "lost", "partial"] as const;
+    const names = ["Not moved over", "Down on both", "Partly moved"];
+    const n = sum([...groups], k => sw.counts[k] ?? 0);
+    const loss = -sum([...groups], k => sw.groupDelta[k] ?? 0);
+    if (n > 0 && loss > 0) {
+      const moved = sw.counts.switched ?? 0;
+      const rate = n + moved > 0 ? Math.round((moved / (n + moved)) * 1000) / 10 : 0;
+      const rows = sw.rows.filter(r => (groups as readonly string[]).includes(r.klass));
+      const annual = loss * A;
+      const count = (k: string) => (sw.counts[k] ?? 0).toLocaleString("en-US");
+      out.push({
+        id: "total-tox-switch", name: "Move clinics that dropped Total Tox over to Toxin Zoomer", pillar: "Product Growth", source: "supporting",
+        segment: "Dropped Total Tox against baseline and did not move to Toxin Zoomer: not moved over, down on both, or partly moved",
+        indicator: "Total Tox → Toxin Zoomer", indicatorValue: `${n.toLocaleString("en-US")} clinics · ${money(annual)} a year below baseline`, metric: "Target Product Orders",
+        from: "Business Feed: Is Toxin Zoomer offsetting the Total Tox downfall?", clinicIds: rows.map(r => r.clinic), n, cur: 0, tgt: rate > 0 ? rate : 10, rateLabel: "share of these clinics that move over to Toxin Zoomer", value: annual / n,
+        observation: `${n.toLocaleString("en-US")} clinics ordered less Total Tox than their baseline and Toxin Zoomer has not made up for it: ${count("stayed")} bought no Toxin Zoomer, ${count("lost")} are down on both, ${count("partial")} moved only part of the way. Together they run ${money(loss)} below baseline in the window, ${money(annual)} a year. ${moved.toLocaleString("en-US")} clinics did move over.`,
+        intervention: "A rep call to each clinic asking why it dropped Total Tox, then offering Toxin Zoomer as the replacement. Start with the clinics that bought no Toxin Zoomer at all.",
+        evidence: "Total Tox and Toxin Zoomer orders and revenue against each clinic's baseline over the analysis window (the Business Feed's switch list). Counts and dollars cover every clinic; the clinic list shows the top 300 per group by loss. The default target is the share of clinics that dropped Total Tox and moved over.", ready: "ready", defaultOwner: "Sales", annual,
+        cols: [
+          { key: "ttGroup", label: "Switch group", title: "Where the clinic stands on moving from Total Tox to Toxin Zoomer", kind: "label", labels: names, values: Object.fromEntries(rows.map(r => [r.clinic, (groups as readonly string[]).indexOf(r.klass) + 1])) },
+          { key: "ttDown", label: "Total Tox vs baseline", title: "Total Tox revenue against the clinic's baseline in the window", kind: "money", values: Object.fromEntries(rows.map(r => [r.clinic, r.downDelta])) },
+          { key: "ttUp", label: "Toxin Zoomer vs baseline", title: "Toxin Zoomer revenue against the clinic's baseline in the window", kind: "money", values: Object.fromEntries(rows.map(r => [r.clinic, r.upDelta])) },
+        ],
+      });
+    }
   }
   const gut = inp.gut;
   if (gut) {

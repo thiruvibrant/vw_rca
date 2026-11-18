@@ -101,13 +101,9 @@ export function buyingRhythm(
   orderDates: readonly string[],
   cutoff: string,
 ): { medianGapBd: number; bdSinceLastOrder: number } | undefined {
-  const dates = [...new Set(orderDates.filter(d => d && d <= cutoff))].sort();
-  if (dates.length < 3) return undefined;
-  const gaps: number[] = [];
-  for (let i = 1; i < dates.length; i++) {
-    gaps.push(businessDaysBetween(dates[i - 1], dates[i]));
-  }
-  gaps.sort((x, y) => x - y);
+  const g = orderGaps(orderDates, cutoff);
+  if (!g) return undefined;
+  const { dates, gaps } = g;
   const mid = gaps.length >> 1;
   const medianGapBd =
     gaps.length % 2 ? gaps[mid] : (gaps[mid - 1] + gaps[mid]) / 2;
@@ -115,6 +111,40 @@ export function buyingRhythm(
     medianGapBd,
     bdSinceLastOrder: businessDaysBetween(dates[dates.length - 1], cutoff),
   };
+}
+
+/**
+ * The 90th percentile (nearest rank) of a clinic's gaps between distinct order dates over the last 12 months, in business days.
+ * Trusted only with 10+ gaps (with fewer, one odd gap would set it); undefined otherwise. A clinic that orders in bursts has a long
+ * p90 gap, so "late" is judged against its own longest usual gaps. Older orders are ignored so an old lapse cannot stretch it.
+ */
+export const P90_MIN_GAPS = 10;
+export function buyingGapP90(
+  orderDates: readonly string[],
+  cutoff: string,
+): number | undefined {
+  const from = addDays(cutoff, -365);
+  const dates = [...new Set(orderDates.filter(d => d && d <= cutoff && d >= from))].sort();
+  if (dates.length < P90_MIN_GAPS + 1) return undefined;
+  const gaps: number[] = [];
+  for (let i = 1; i < dates.length; i++) gaps.push(businessDaysBetween(dates[i - 1], dates[i]));
+  gaps.sort((x, y) => x - y);
+  return gaps[Math.max(0, Math.ceil(gaps.length * 0.9) - 1)];
+}
+
+/** Distinct order dates up to `cutoff` and the sorted business-day gaps between them; undefined under 3 distinct dates. */
+function orderGaps(
+  orderDates: readonly string[],
+  cutoff: string,
+): { dates: string[]; gaps: number[] } | undefined {
+  const dates = [...new Set(orderDates.filter(d => d && d <= cutoff))].sort();
+  if (dates.length < 3) return undefined;
+  const gaps: number[] = [];
+  for (let i = 1; i < dates.length; i++) {
+    gaps.push(businessDaysBetween(dates[i - 1], dates[i]));
+  }
+  gaps.sort((x, y) => x - y);
+  return { dates, gaps };
 }
 
 /** Buying Overdue: business days since last order / max(median gap, 2) >= 3. */
@@ -157,6 +187,8 @@ export type OperationalInputs = {
   /** Buying-rhythm inputs (business days), undefined when ineligible. */
   medianGapBd?: number;
   bdSinceLastOrder?: number;
+  /** active / reactivated / churned by the clinic's OWN gap threshold (analytics/lifecycleRules.ts). When known, Churned / Lost follows it. */
+  life?: string;
 };
 
 function daysSince(
@@ -232,10 +264,14 @@ export function evaluateFlags(
   // 5/6. Churned/Lost vs Slipping Away (Late) — both require YTD orders to
   // be 0 or >2 (i.e. NOT the 1-2 "Failed to Launch" band).
   const churnEligible = op.ytdOrders === 0 || op.ytdOrders > 2;
+  // Churned / Lost follows the clinic's own churn status when it is known (45 days, or 3 x its usual gap for a slow buyer, the same line the
+  // scorecard's churn dial uses), so a clinic can not be "Churned / Lost" here and still active there (2026-11-18). A clinic that is not yet
+  // churned by its own line and 31+ days quiet is Slipping Away. Without a status the old fixed rule applies: over 60 days is Churned / Lost.
   if (churnEligible && daysSinceLastOrder !== null) {
-    if (daysSinceLastOrder > 60) {
+    const churned = op.life === undefined ? daysSinceLastOrder > 60 : op.life === "churned";
+    if (churned) {
       flags.push(FLAG.CHURNED);
-    } else if (daysSinceLastOrder >= 31 && daysSinceLastOrder <= 60) {
+    } else if (daysSinceLastOrder >= 31 && (op.life !== undefined || daysSinceLastOrder <= 60)) {
       flags.push(FLAG.SLIPPING_AWAY);
     }
   }
