@@ -9,13 +9,16 @@ export const AT_RISK = {
   fixedMaxDays: 45,
   /** Late = business days since the last order past this many times the clinic's median gap (gap floored at 2) ... */
   lateRatio: 1.5,
-  /** ... and past its own 90th-percentile gap, when known, but never asking for more than this many median gaps (two missed intervals), so an old lapse cannot push "late" past the churn line. */
-  maxLateRatio: 2,
+  /** ... and past its own 90th-percentile gap, when known. "Late" never waits past this share of the way to the clinic's churn line. */
+  headroom: 0.8,
+  /** The churn line in business days, about max(45 days, 3 x the median gap) (analytics/lifecycleRules.ts): 45 calendar days is about 31. */
+  churnFloorBd: 31,
+  churnMultiple: 3,
   /** A real shortfall: at least this share of the baseline, over the whole analysis window. */
   minShortfall: 0.1,
 } as const;
 
-/** Flags that count. Ghosted VIP does not: it is a no-contact problem, covered by the Growth page's untouched high-value row. */
+/** Flags that count for a clinic with no rhythm. Ghosted VIP does not: it is a no-contact problem, covered by the Growth page's untouched high-value row. */
 const FLAGS = /slipping|overdue|risk|drop/i;
 
 export type AtRiskInput = {
@@ -31,16 +34,22 @@ export type AtRiskInput = {
   health: readonly string[];
 };
 
+/**
+ * With a rhythm (3+ order dates) lateness and a real shortfall decide: no flag is needed, because only Bleed flags fire before the churn line
+ * for a slow buyer, and a flag gate would hide exactly the clinics that give the most warning. Without a rhythm the old rule applies:
+ * the fixed 5 to 44 day window and a slipping, overdue or bleed flag.
+ */
 export function isAtRisk(i: AtRiskInput): boolean {
   const d = i.daysSinceLast;
   if (d === null || d < AT_RISK.minDays) return false;
   if (i.life === "churned") return false;
   if (i.life === undefined && d >= AT_RISK.fixedMaxDays) return false;
   if (!(i.baseline > 0) || -i.realChange < AT_RISK.minShortfall * i.baseline) return false;
-  if (!i.health.some(h => FLAGS.test(h))) return false;
-  if (i.medianGapBd === undefined || i.bdSinceLastOrder === undefined) return d < AT_RISK.fixedMaxDays;
+  if (i.medianGapBd === undefined || i.bdSinceLastOrder === undefined) return d < AT_RISK.fixedMaxDays && i.health.some(h => FLAGS.test(h));
   const gap = Math.max(i.medianGapBd, 2);
-  return i.bdSinceLastOrder > Math.min(Math.max(AT_RISK.lateRatio * gap, i.p90GapBd ?? 0), AT_RISK.maxLateRatio * gap);
+  const churnBd = Math.max(AT_RISK.churnFloorBd, AT_RISK.churnMultiple * i.medianGapBd);
+  const late = Math.min(Math.max(AT_RISK.lateRatio * gap, i.p90GapBd ?? 0), AT_RISK.headroom * churnBd);
+  return i.bdSinceLastOrder > late;
 }
 
 /** The clinic's flags, baseline and real change over the whole analysis window (the "all" tab's row). */

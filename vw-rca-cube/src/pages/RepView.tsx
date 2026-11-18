@@ -2328,7 +2328,7 @@ function useCellContrib(b: Book, pg: PGStats | null, pgd: ReturnType<typeof useP
     const set = new Set(ids);
     const inList = (r: ContribRow) => set.has(r.clinic);
     if (label === "At-risk customers")
-      return { universe: b => b.existingIds ?? [], f: r => (inList(r) ? -1 : 1), unit: "clinics", amount: r => (inList(r) ? Math.min(r.realChange, 0) : 0), up: "Not at risk", down: "At risk: late against its own rhythm and below baseline", note: "Existing clinics running late against their own order rhythm that are at least 10% below baseline and flagged slipping, overdue or bleeding. The dollar figure is their real shortfall below baseline; the rest are on rhythm." };
+      return { universe: b => b.existingIds ?? [], f: r => (inList(r) ? -1 : 1), unit: "clinics", amount: r => (inList(r) ? Math.min(r.realChange, 0) : 0), up: "Not at risk", down: "At risk: late against its own rhythm and below baseline", note: "Existing clinics running late against their own order rhythm that are at least 10% below baseline. The dollar figure is their real shortfall below baseline; the rest are on rhythm." };
     if (label === "Low-AOV customers")
       return { universe: b => b.activeIds ?? [], f: r => (inList(r) ? -1 : 1), unit: "clinics", up: "AOV at or above $400", down: "AOV under $400", note: "Clinics that ordered in this window, split by whether their average order is under $400." };
     if (label === "Cross-sell candidates" && isFzFamily(family) && fz?.ready) return fzContrib(fz);
@@ -2818,7 +2818,7 @@ function kpiLibrary(k: Book, b: Book, hz: Fam | undefined, totalRev: number, pg?
     n("Retention", "Repeat Purchase Rate", "Active clinics with 2+ orders.", P(k.repeatRate)),
     n("Retention", "Time to Next Order", "Approx. days between orders for repeat clinics (window ÷ orders).", k.daysBetweenOrders ? `${k.daysBetweenOrders.toFixed(0)}d` : null),
     n("Retention", "Dormant Customers", "Clinics with no order in 9+ months.", String(k.dormant)),
-    n("Retention", "At-Risk Revenue", "Shortfall at clinics running late against their own order rhythm, 10%+ below baseline and flagged slipping, overdue or bleeding.", K(k.atRiskRev)),
+    n("Retention", "At-Risk Revenue", "Shortfall at clinics running late against their own order rhythm and 10%+ below baseline.", K(k.atRiskRev)),
     n("Retention", "Reactivation Rate", "Lapsed clinics that resumed ordering.", null, "needs lapsed-list history"),
     n("Expansion", "Expansion Revenue", "Revenue above baseline at growing existing clinics.", SK(k.expansionRev)),
     n("Expansion", "Expansion Rate", "Existing clinics above baseline.", P(k.expansionRate)),

@@ -37,7 +37,7 @@ const GROUPS: Group[] = [
       { q: "What is an existing clinic?", a: "A clinic that is not new and ordered in the baseline period (or, for a slow buyer, has its own 12-month history to build a baseline from). Retention, expansion and at-risk are measured on these." },
       { q: "What is a returning (reactivated) clinic?", a: "An older clinic with no baseline that has started ordering again after an unusually long gap. Like a new clinic it has no baseline, so its revenue counts as new business." },
       { q: "When is a clinic churned?", a: "When it has not ordered for 45 days. For an established clinic with a steady rhythm the line is three times its usual gap between orders (never under 45 days), so a clinic that normally orders every 40 days is not called churned at day 50." },
-      { q: "What is at risk?", a: "An existing clinic that is running late against its own order rhythm (not a fixed number of days), is at least 10% below its baseline, and is flagged as slipping, overdue or bleeding. It has not churned yet: it is the group to call before it does. A clinic that is on its usual cadence is not at risk, and a missed call alone does not make it so." },
+      { q: "What is at risk?", a: "An existing clinic that is running late against its own order rhythm (not a fixed number of days), and is at least 10% below its baseline. It has not churned yet: it is the group to call before it does. A clinic that is on its usual cadence is not at risk, and a missed call alone does not make it so." },
       { q: "What are the Active tiers (New, Largest 20%, Everyone else)?", a: "A way to split clinics that are still ordering: this year's new clinics, the biggest 20% by baseline, and the rest, so you can see where a shortfall sits." },
     ],
   },

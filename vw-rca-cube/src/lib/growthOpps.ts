@@ -236,9 +236,9 @@ export function discover(inp: Inputs): OppDef[] {
       id: "at-risk", name: "Recover at-risk clinics", pillar: "Retention", source: "scorecard", segment: "Existing clinics slipping before the churn line",
       indicator: "At-risk customers", indicatorValue: `${b.opp.atRisk.n.toLocaleString("en-US")} clinics · ${money(short)} a year below baseline`, metric: "Revenue Retention", from: "",
       clinicIds: b.opp.atRisk.ids, n: b.opp.atRisk.n, cur: 0, tgt: 35, rateLabel: "share of the shortfall below baseline recovered", value: short / b.opp.atRisk.n,
-      observation: `${b.opp.atRisk.n.toLocaleString("en-US")} existing clinics are running late against their own order rhythm, are at least 10% below baseline and are flagged slipping, overdue or bleeding. They run ${money(short)} a year below their baseline.`,
+      observation: `${b.opp.atRisk.n.toLocaleString("en-US")} existing clinics are running late against their own order rhythm, are at least 10% below baseline. They run ${money(short)} a year below their baseline.`,
       intervention: "A weekly call list ranked by dollars below baseline, worked by the clinic owner before the 45-day churn line.",
-      evidence: "The scorecard's At-risk customers indicator, annualized from the analysis window. A clinic is at risk only when it is late against its own order rhythm; one on its usual cadence, above baseline, or flagged only for a missed call is not.", ready: "ready", defaultOwner: "Sales", annual: short,
+      evidence: "The scorecard's At-risk customers indicator, annualized from the analysis window. A clinic is at risk only when it is late against its own order rhythm; one on its usual cadence, above baseline, or merely not called is not.", ready: "ready", defaultOwner: "Sales", annual: short,
     });
   }
   if (b && b.kpi.churnedIds.length > 0 && inp.rows) {

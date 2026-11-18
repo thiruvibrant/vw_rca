@@ -114,16 +114,22 @@ export function buyingRhythm(
 }
 
 /**
- * The 90th percentile (nearest rank) of a clinic's gaps between distinct order dates, in business days; same eligibility as
- * `buyingRhythm`. A clinic that orders in bursts has a long p90 gap, so "late" is judged against its own longest usual gaps.
+ * The 90th percentile (nearest rank) of a clinic's gaps between distinct order dates over the last 12 months, in business days.
+ * Trusted only with 10+ gaps (with fewer, one odd gap would set it); undefined otherwise. A clinic that orders in bursts has a long
+ * p90 gap, so "late" is judged against its own longest usual gaps. Older orders are ignored so an old lapse cannot stretch it.
  */
+export const P90_MIN_GAPS = 10;
 export function buyingGapP90(
   orderDates: readonly string[],
   cutoff: string,
 ): number | undefined {
-  const g = orderGaps(orderDates, cutoff);
-  if (!g) return undefined;
-  return g.gaps[Math.max(0, Math.ceil(g.gaps.length * 0.9) - 1)];
+  const from = addDays(cutoff, -365);
+  const dates = [...new Set(orderDates.filter(d => d && d <= cutoff && d >= from))].sort();
+  if (dates.length < P90_MIN_GAPS + 1) return undefined;
+  const gaps: number[] = [];
+  for (let i = 1; i < dates.length; i++) gaps.push(businessDaysBetween(dates[i - 1], dates[i]));
+  gaps.sort((x, y) => x - y);
+  return gaps[Math.max(0, Math.ceil(gaps.length * 0.9) - 1)];
 }
 
 /** Distinct order dates up to `cutoff` and the sorted business-day gaps between them; undefined under 3 distinct dates. */

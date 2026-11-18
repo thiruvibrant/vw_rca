@@ -415,8 +415,8 @@ const SECTIONS: Section[] = [
         see: "A count and the dollars they are short of their baseline.",
         how: [
           "Take existing clinics that ordered 5 or more days ago and have not churned.",
-          "Keep the ones running late against their own rhythm: past 1.5 times their usual gap between orders, and past their longest usual gap, so a clinic that orders in bursts is not caught. A clinic with too little history uses the old 5 to 44 day window.",
-          "Keep the ones at least 10% below their baseline this window and flagged slipping, overdue or bleeding. A missed call (Ghosted VIP) alone does not count; the untouched high-value list covers that.",
+          "Keep the ones running late against their own rhythm: past 1.5 times their usual gap between orders, or past their longest usual gap if they order in bursts (never later than most of the way to the churn line). A clinic with too little history (under three order dates) uses the old 5 to 44 day window and needs a slipping, overdue or bleeding flag.",
+          "Keep the ones at least 10% below their baseline over the whole analysis window. No flag is needed: a clinic that is late and short of its baseline is at risk. A missed call (Ghosted VIP) alone does not count; the untouched high-value list covers that.",
           "The dollars are how far below their baseline those clinics are this window.",
         ],
         who: "Existing clinics only. The same clinics are at risk on every tab; only the dollars change with the window.",
@@ -425,7 +425,7 @@ const SECTIONS: Section[] = [
         watch: ["A clinic that is on its own usual cadence is not at risk, even if it has not ordered for a few weeks. A clinic above its baseline is never at risk."],
         example: {
           story: "Twelve existing clinics have not churned. Four are at risk: they usually reorder every two weeks, it has been five, and they are 10% or more below baseline. Those four are $9K below their baseline together.",
-          viz: <Dots total={12} on={4} onLabel="flagged as slipping" offLabel="on their usual rhythm" />,
+          viz: <Dots total={12} on={4} onLabel="at risk" offLabel="on their usual rhythm" />,
         },
       },
       {
