@@ -266,6 +266,7 @@ type ClinicMetaRow = {
   medianGapBd?: number;
   bdSinceLastOrder?: number;
   p90GapBd?: number;
+  life?: string;
 };
 
 /**
@@ -399,6 +400,7 @@ export async function clinicHealthMap(
           touchDataAvailable: m.touchDataAvailable ?? false,
           medianGapBd: m.medianGapBd,
           bdSinceLastOrder: m.bdSinceLastOrder,
+          life: m.life,
         },
         perf,
       ),
@@ -653,6 +655,7 @@ export async function drill(
         touchDataAvailable: m.touchDataAvailable ?? false,
         medianGapBd: m.medianGapBd,
         bdSinceLastOrder: m.bdSinceLastOrder,
+        life: m.life,
       },
       {
         actual,

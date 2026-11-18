@@ -8,8 +8,25 @@ export function inCallFirstWindow(daysSinceLast: number | null, churned: boolean
   return daysSinceLast !== null && daysSinceLast >= CALL_FIRST_MIN_DAYS && !churned;
 }
 
-/** The extra chip on the Call-first list: the clinics on the At-risk card (analytics/atRisk.ts), whatever health flags they carry. */
-export const AT_RISK_TAG = "At risk";
+/**
+ * The extra chip on the Call-first list: the clinics on the At-risk card (analytics/atRisk.ts) that are among the largest 20% of the active
+ * existing clinics, whatever health flags they carry. Slow, small buyers would not move revenue, so the chip is a short, valuable call list;
+ * the At-risk card itself still counts every at-risk clinic.
+ */
+export const AT_RISK_TAG = "At risk · top 20%";
+export const AT_RISK_SHARE = 0.2;
 export function onCallFirstTag(tag: string, clinic: string, health: readonly string[], atRisk: ReadonlySet<string>): boolean {
   return tag === AT_RISK_TAG ? atRisk.has(clinic) : health.includes(tag);
+}
+
+/** At-risk clinics whose baseline reaches the top `share` of the active existing clinics' baselines (ties included). */
+export function largestAtRisk(
+  active: ReadonlyArray<{ clinic: string; baseline: number }>,
+  atRisk: ReadonlySet<string>,
+  share: number = AT_RISK_SHARE,
+): Set<string> {
+  const sorted = active.map(a => a.baseline).filter(b => b > 0).sort((a, b) => b - a);
+  if (!sorted.length) return new Set();
+  const cut = sorted[Math.max(0, Math.ceil(sorted.length * share) - 1)];
+  return new Set(active.filter(a => atRisk.has(a.clinic) && a.baseline > 0 && a.baseline >= cut).map(a => a.clinic));
 }

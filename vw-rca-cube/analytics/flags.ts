@@ -187,6 +187,8 @@ export type OperationalInputs = {
   /** Buying-rhythm inputs (business days), undefined when ineligible. */
   medianGapBd?: number;
   bdSinceLastOrder?: number;
+  /** active / reactivated / churned by the clinic's OWN gap threshold (analytics/lifecycleRules.ts). When known, Churned / Lost follows it. */
+  life?: string;
 };
 
 function daysSince(
@@ -262,10 +264,14 @@ export function evaluateFlags(
   // 5/6. Churned/Lost vs Slipping Away (Late) — both require YTD orders to
   // be 0 or >2 (i.e. NOT the 1-2 "Failed to Launch" band).
   const churnEligible = op.ytdOrders === 0 || op.ytdOrders > 2;
+  // Churned / Lost follows the clinic's own churn status when it is known (45 days, or 3 x its usual gap for a slow buyer, the same line the
+  // scorecard's churn dial uses), so a clinic can not be "Churned / Lost" here and still active there (2026-11-18). A clinic that is not yet
+  // churned by its own line and 31+ days quiet is Slipping Away. Without a status the old fixed rule applies: over 60 days is Churned / Lost.
   if (churnEligible && daysSinceLastOrder !== null) {
-    if (daysSinceLastOrder > 60) {
+    const churned = op.life === undefined ? daysSinceLastOrder > 60 : op.life === "churned";
+    if (churned) {
       flags.push(FLAG.CHURNED);
-    } else if (daysSinceLastOrder >= 31 && daysSinceLastOrder <= 60) {
+    } else if (daysSinceLastOrder >= 31 && (op.life !== undefined || daysSinceLastOrder <= 60)) {
       flags.push(FLAG.SLIPPING_AWAY);
     }
   }
