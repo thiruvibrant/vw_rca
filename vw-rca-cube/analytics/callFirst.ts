@@ -9,24 +9,18 @@ export function inCallFirstWindow(daysSinceLast: number | null, churned: boolean
 }
 
 /**
- * The extra chip on the Call-first list: the clinics on the At-risk card (analytics/atRisk.ts) that are among the largest 20% of the active
- * existing clinics, whatever health flags they carry. Slow, small buyers would not move revenue, so the chip is a short, valuable call list;
- * the At-risk card itself still counts every at-risk clinic.
+ * The extra chip on the Call-first list: the clinics on the At-risk card (analytics/atRisk.ts) that are in the scorecard's "Active, top 20%"
+ * group (`retained_top20`: the top fifth of all active clinics, company-wide, by baseline; set in refresh.ts), whatever health flags they carry.
+ * Slow, small buyers would not move revenue, so the chip is a short, valuable call list; the At-risk card itself still counts every at-risk
+ * clinic. It uses the scorecard's own group so the tag on a clinic, the card and the chip agree (a rep's own top 20% is a different bar).
  */
 export const AT_RISK_TAG = "At risk · top 20%";
-export const AT_RISK_SHARE = 0.2;
+export const TOP20_COHORT = "retained_top20";
 export function onCallFirstTag(tag: string, clinic: string, health: readonly string[], atRisk: ReadonlySet<string>): boolean {
   return tag === AT_RISK_TAG ? atRisk.has(clinic) : health.includes(tag);
 }
 
-/** At-risk clinics whose baseline reaches the top `share` of the active existing clinics' baselines (ties included). */
-export function largestAtRisk(
-  active: ReadonlyArray<{ clinic: string; baseline: number }>,
-  atRisk: ReadonlySet<string>,
-  share: number = AT_RISK_SHARE,
-): Set<string> {
-  const sorted = active.map(a => a.baseline).filter(b => b > 0).sort((a, b) => b - a);
-  if (!sorted.length) return new Set();
-  const cut = sorted[Math.max(0, Math.ceil(sorted.length * share) - 1)];
-  return new Set(active.filter(a => atRisk.has(a.clinic) && a.baseline > 0 && a.baseline >= cut).map(a => a.clinic));
+/** The at-risk clinics that are in the scorecard's Active top 20% group. */
+export function topCohortAtRisk(rows: ReadonlyArray<{ clinic: string; cohort: string }>, atRisk: ReadonlySet<string>): Set<string> {
+  return new Set(rows.filter(r => r.cohort === TOP20_COHORT && atRisk.has(r.clinic)).map(r => r.clinic));
 }

@@ -8,7 +8,7 @@
  * reason instead of being estimated.
  */
 import { isAtRiskInWindow, type WholeWindow } from "./atRisk";
-import { AT_RISK_TAG, inCallFirstWindow, largestAtRisk, onCallFirstTag } from "./callFirst";
+import { AT_RISK_TAG, inCallFirstWindow, onCallFirstTag, topCohortAtRisk } from "./callFirst";
 import { isCompanyLead, isTeamScope, teamOf } from "./scope";
 import { goalRowFor, mainSettings, newGoalFor, newGoalOf, newShareOver, sliceOf, targetScale } from "./baseline";
 import { v } from "convex/values";
@@ -379,12 +379,9 @@ export const book = scopedQuery({
     // 45 days a clinic is treated as lost and drops off this list). Ranked
     // by dollars at stake first, days overdue second. Optional health-note
     // filter narrows to one tag for a targeted call list.
-    // The At risk chip comes first: the clinics on the At-risk card that are among the largest 20% of the active existing clinics (by
-    // whole-window baseline, the same on every tab). Slow, small buyers stay on the card but not on this call list.
-    const atRiskSet = largestAtRisk(
-      existing.filter(r => !isChurned(r)).map(r => ({ clinic: r.clinic, baseline: wholeOf.get(r.clinic)?.baseline ?? r.baseline })),
-      new Set(atRiskRows.map(r => r.clinic)),
-    );
+    // The At risk chip comes first: the clinics on the At-risk card that are in the scorecard's Active top 20% group (company-wide, the tag
+    // shown on each clinic). Slow, small buyers stay on the card but not on this call list.
+    const atRiskSet = topCohortAtRisk(existing, new Set(atRiskRows.map(r => r.clinic)));
     const healthTags = [AT_RISK_TAG, ...new Set(existing.flatMap(r => r.health))].sort((a, b) => (a === AT_RISK_TAG ? -1 : b === AT_RISK_TAG ? 1 : a.localeCompare(b)));
     const pstatusTags = [...new Set(existing.flatMap(r => r.pstatus))].sort();
     const callFirstPool = existing

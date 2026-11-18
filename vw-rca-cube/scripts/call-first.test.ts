@@ -10,7 +10,7 @@ test("Call-first: ordered 5+ days ago and not churned by the clinic's own thresh
   assert.equal(inCallFirstWindow(null, false), false);
 });
 
-import { AT_RISK_TAG, largestAtRisk, onCallFirstTag } from "../analytics/callFirst.ts";
+import { AT_RISK_TAG, onCallFirstTag, topCohortAtRisk } from "../analytics/callFirst.ts";
 
 test("the At risk chip matches the clinics on the At-risk card; a health chip matches clinics carrying that flag", () => {
   const atRisk = new Set(["1", "2"]);
@@ -21,11 +21,14 @@ test("the At risk chip matches the clinics on the At-risk card; a health chip ma
   assert.equal(onCallFirstTag("⚠️ Slipping Away (Late)", "1", ["✅ Healthy"], atRisk), false);
 });
 
-test("the At risk chip keeps only the largest 20% of the active existing clinics, by whole-window baseline", () => {
-  const active = Array.from({ length: 10 }, (_, i) => ({ clinic: String(i + 1), baseline: (i + 1) * 100 })); // 100..1000, the top 20% reach 900
-  const atRisk = new Set(["1", "8", "9", "10", "99"]); // 99 is not an active existing clinic
-  assert.deepEqual([...largestAtRisk(active, atRisk)].sort(), ["10", "9"]);
-  assert.deepEqual([...largestAtRisk(active, atRisk, 0.5)].sort(), ["10", "8", "9"]); // top half: baseline 600+
-  assert.deepEqual([...largestAtRisk([], atRisk)], []);
-  assert.deepEqual([...largestAtRisk(active.map(a => ({ ...a, baseline: 0 })), atRisk)], []); // no baseline, no one is large
+test("the At risk chip keeps the at-risk clinics in the scorecard's Active top 20% group (company-wide), not the top 20% of one rep's book", () => {
+  const rows = [
+    { clinic: "1", cohort: "retained_top20" },
+    { clinic: "2", cohort: "retained_rest" },
+    { clinic: "3", cohort: "retained_top20" },
+    { clinic: "4", cohort: "new" },
+    { clinic: "5", cohort: "retained_top20" },
+  ];
+  assert.deepEqual([...topCohortAtRisk(rows, new Set(["1", "2", "4", "5", "99"]))].sort(), ["1", "5"]); // 3 is not at risk, 99 is not a row
+  assert.deepEqual([...topCohortAtRisk([], new Set(["1"]))], []);
 });
