@@ -7,6 +7,7 @@
  * quotas, per-order panel mix, discounts) are returned as `null` with a
  * reason instead of being estimated.
  */
+import { isAtRisk } from "./atRisk";
 import { isCompanyLead, isTeamScope, teamOf } from "./scope";
 import { goalRowFor, mainSettings, newGoalFor, newGoalOf, newShareOver, sliceOf, targetScale } from "./baseline";
 import { v } from "convex/values";
@@ -188,16 +189,20 @@ export const book = scopedQuery({
       const wholeWin = await drill(ctx, { periodId: "all", lens: "total", unlimited: true, sales: args.sales });
       if (wholeWin.ready) for (const r of wholeWin.rows) healthAll.set(r.clinic, r.health);
     }
-    // At risk (Shyam 2026-10-05): same 5–44 day last-order window as Call first.
-    const atRiskRows = existing.filter(
-      r => {
-        const last = since(cutoff, r.lastOrderAllTime);
-        return last !== null && last >= 5 && last < 45;
-      },
-    ).filter(
-      // Health flags only (slipping / overdue / at risk / ghost / dropping). The old "under half its baseline in this
-      // tab" clause made the count swing with the tab length (186 on a week, 154 on a month), so it is gone (2026-10-18).
-      r => (healthAll.get(r.clinic) ?? r.health).some(h => /slipping|overdue|risk|ghost|drop/i.test(h)),
+    // At risk (cadence-aware, 2026-11-17; analytics/atRisk.ts): late against the clinic's own order rhythm, at least 10% below baseline
+    // in this window, and flagged slipping / overdue / bleeding (Ghosted VIP no longer counts). Before 2026-11-17 this was "last order
+    // 5-44 days ago plus any of those flags or Ghosted VIP", which counted healthy clinics on a long cadence or with no recent call.
+    const atRiskRows = existing.filter(r =>
+      isAtRisk({
+        life: r.life,
+        daysSinceLast: since(cutoff, r.lastOrderAllTime),
+        medianGapBd: r.medianGapBd,
+        p90GapBd: r.p90GapBd,
+        bdSinceLastOrder: r.bdSinceLastOrder,
+        baseline: r.baseline,
+        realChange: r.realChange,
+        health: healthAll.get(r.clinic) ?? r.health,
+      }),
     );
     const dormant = rows.filter(r => {
       const s = since(cutoff, r.lastOrderAllTime);

@@ -174,6 +174,8 @@ const schema = defineSchema({
     // the clinic has <3 distinct order dates.
     medianGapBd: v.optional(v.number()),
     bdSinceLastOrder: v.optional(v.number()),
+    // 90th-percentile gap between order dates (business days): "late" for a clinic that orders in bursts is judged against it.
+    p90GapBd: v.optional(v.number()),
     // Refresh generation; readers only see rows from the current one.
     gen: v.optional(v.number()),
   })

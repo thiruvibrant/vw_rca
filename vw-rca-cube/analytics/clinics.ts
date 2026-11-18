@@ -58,6 +58,10 @@ export type ClinicRow = {
   isNew?: boolean;
   /** active / reactivated / churned, as of the latest data and by the clinic's own gap threshold. */
   life?: string;
+  /** Order rhythm in business days (needs 3+ order dates): median gap, 90th-percentile gap and days since the last order. */
+  medianGapBd?: number;
+  p90GapBd?: number;
+  bdSinceLastOrder?: number;
   health: string[];
   pstatus: string[];
   /** Goal: baseline x the period goal factor. `delta` is actual minus this. */
@@ -261,6 +265,7 @@ type ClinicMetaRow = {
   touchDataAvailable?: boolean;
   medianGapBd?: number;
   bdSinceLastOrder?: number;
+  p90GapBd?: number;
 };
 
 /**
@@ -707,6 +712,9 @@ export async function drill(
       newGroups: m.newGroups ?? [],
       isNew: m.isNew ?? false,
       life: m.life,
+      medianGapBd: m.medianGapBd,
+      p90GapBd: m.p90GapBd,
+      bdSinceLastOrder: m.bdSinceLastOrder,
       health,
       pstatus: m.pstatus ?? [],
       expected: scoped.expected,
