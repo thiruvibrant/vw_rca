@@ -279,3 +279,51 @@ test("a clinic claimed by baseline candidates is also removed from the lapsed Gu
   assert.equal(ws.n, 2); // pairs scale with the clinics that remain (4 pairs over 2 clinics, 1 left)
   assert.equal(ws.annual, 2 * 500);
 });
+
+/** Total Tox -> Toxin Zoomer switch list, as the engine returns it: counts and dollars for every group, rows capped per group. */
+const switchers = (): NonNullable<Inputs["switchers"]> => ({
+  counts: { stayed: 2, lost: 1, partial: 1, switched: 1, gained: 5, uponly: 3 },
+  groupDelta: { stayed: -1000, lost: -600, partial: -400, switched: 300, gained: 50, uponly: 20 },
+  rows: [
+    { clinic: "11", klass: "stayed", downDelta: -700, upDelta: 0, netDelta: -700 },
+    { clinic: "12", klass: "stayed", downDelta: -300, upDelta: 0, netDelta: -300 },
+    { clinic: "13", klass: "lost", downDelta: -500, upDelta: -100, netDelta: -600 },
+    { clinic: "14", klass: "partial", downDelta: -600, upDelta: 200, netDelta: -400 },
+    { clinic: "15", klass: "switched", downDelta: -200, upDelta: 500, netDelta: 300 },
+    { clinic: "16", klass: "gained", downDelta: 50, upDelta: 0, netDelta: 50 },
+  ],
+});
+
+test("Total Tox switch: the clinics that dropped Total Tox and did not move over, sized from the full group dollars", () => {
+  const d = discover({ ...inputs(), switchers: switchers() }).find(x => x.id === "total-tox-switch")!;
+  assert.equal(d.pillar, "Product Growth");
+  assert.equal(d.source, "supporting");
+  assert.equal(d.n, 4); // 2 + 1 + 1 from the counts
+  assert.deepEqual([...d.clinicIds].sort(), ["11", "12", "13", "14"]); // moved over, flat and Toxin-only clinics are left out
+  assert.ok(Math.abs(d.annual - 2000 * annualFactor(182)) < 1e-6);
+  assert.ok(Math.abs(d.n * d.value - d.annual) < 1e-6);
+  assert.equal(d.cur, 0);
+  assert.equal(d.tgt, 20); // 1 moved over of 5 that dropped Total Tox
+  assert.deepEqual(d.cols!.find(c => c.key === "ttGroup")!.values, { "11": 1, "12": 1, "13": 2, "14": 3 });
+  assert.deepEqual(d.cols!.find(c => c.key === "ttGroup")!.labels, ["Not moved over", "Down on both", "Partly moved"]);
+  assert.equal(d.cols!.find(c => c.key === "ttDown")!.values["13"], -500);
+  assert.equal(d.cols!.find(c => c.key === "ttUp")!.values["14"], 200);
+});
+
+test("Total Tox switch: a group above the engine's row cap still counts in full, and nobody moved over defaults the target to 10", () => {
+  const s = switchers();
+  s.counts = { stayed: 450, lost: 0, partial: 0, switched: 0 };
+  s.groupDelta = { stayed: -90000 };
+  const d = discover({ ...inputs(), switchers: s }).find(x => x.id === "total-tox-switch")!;
+  assert.equal(d.n, 450);
+  assert.ok(Math.abs(d.annual - 90000 * annualFactor(182)) < 1e-6);
+  assert.equal(d.tgt, 10);
+});
+
+test("Total Tox switch: no row without the switch list, or when Toxin Zoomer more than covers the drop", () => {
+  assert.equal(discover({ ...inputs(), switchers: null }).some(d => d.id === "total-tox-switch"), false);
+  assert.equal(discover(inputs()).some(d => d.id === "total-tox-switch"), false);
+  const s = switchers();
+  s.groupDelta = { stayed: 100, lost: 0, partial: 0, switched: 300 };
+  assert.equal(discover({ ...inputs(), switchers: s }).some(d => d.id === "total-tox-switch"), false);
+});

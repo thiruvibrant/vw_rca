@@ -3,8 +3,8 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/lib/api";
 import { useRcaAction, useRcaQuery } from "@/lib/rca";
 import {
-  BASELINES, DEFAULT_WEIGHTS, DIMENSIONS, annualFactor, MATRIX, PILLARS, STATUSES, THRESHOLD, WEIGHT_KEYS, discover, overlapAdjusted, priority, recommendation, regionSplit, resolve,
-  type ClinicLite, type FzLite, type GutLite, type LapsedLite, type ProviderLite, type WhitespaceLite, type Opp, type Pillar, type Saved, type Status, type Weights,
+  DEFAULT_WEIGHTS, DIMENSIONS, annualFactor, MATRIX, PILLARS, STATUSES, THRESHOLD, WEIGHT_KEYS, discover, overlapAdjusted, priority, recommendation, regionSplit, resolve,
+  type ClinicLite, type FzLite, type GutLite, type LapsedLite, type ProviderLite, type SwitchLite, type WhitespaceLite, type Opp, type Pillar, type Saved, type Status, type Weights,
 } from "@/lib/growthOpps";
 import { geoKeyOf } from "../../analytics/geoKey";
 import { pw } from "./gatePw";
@@ -14,15 +14,18 @@ import "./growth.css";
 
 const COMPANY = "team:*";
 const PAGE = 8;
-const money = (n: number) => (n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(2)}M` : n >= 1000 ? `$${Math.round(n / 1000)}K` : `$${Math.round(n)}`);
+const money = (n: number): string => (n < 0 ? `-${money(-n)}` : n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(2)}M` : n >= 1000 ? `$${Math.round(n / 1000)}K` : `$${Math.round(n)}`);
 const int = (n: number) => Math.round(n).toLocaleString("en-US");
 
 type Row = { opp: Opp; score: number; rec: ReturnType<typeof recommendation> | "Dropped" };
 
 /** The clinics behind one opportunity, in the scorecard's clinic list (same columns, same expandable clinic card). */
 function OppClinics({ opp, scope, onClose }: { opp: Opp; scope: string; onClose: () => void }) {
-  const fmts = { int: (n: number) => int(n), money: (n: number) => money(n), pct: (n: number) => `${n.toFixed(1)}%`, days: (n: number) => `${int(n)}d`, offer: (n: number) => BASELINES[n - 1]?.baseline ?? "" };
-  const extraCols = (opp.cols ?? []).map(c => ({ key: c.key, label: c.label, title: c.title, value: (clinic: string) => c.values[clinic] ?? 0, fmt: fmts[c.kind] }));
+  const fmts = { int: (n: number) => int(n), money: (n: number) => money(n), pct: (n: number) => `${n.toFixed(1)}%`, days: (n: number) => `${int(n)}d` };
+  const extraCols = (opp.cols ?? []).map(c => ({
+    key: c.key, label: c.label, title: c.title, value: (clinic: string) => c.values[clinic] ?? 0,
+    fmt: c.kind === "label" ? (n: number) => c.labels?.[n - 1] ?? "" : fmts[c.kind],
+  }));
   const q = useRcaQuery(api.repView.rowsByFocus, { password: pw(), periodId: "all", sales: scope, focus: `ids:${opp.clinicIds.slice(0, 1500).join(",")}` });
   return (
     <FocusTable
@@ -269,6 +272,21 @@ function useGut(): GutLite | null {
   return data;
 }
 
+/** The Business Feed's Total Tox to Toxin Zoomer switch list for the analysis window. Null until the engine answers; if it cannot, the page goes without that row. */
+function useSwitchers(scope: string): SwitchLite | null {
+  const run = useRcaAction(api.families.switchClinicsAction);
+  const [data, setData] = useState<SwitchLite | null>(null);
+  useEffect(() => {
+    let live = true;
+    setData(null);
+    run({ password: pw(), periodId: "all", down: "Total Tox", up: "Toxin Zoomer", limit: 300, sales: scope === COMPANY ? undefined : scope })
+      .then(r => live && setData({ counts: r.counts, groupDelta: r.groupDelta, rows: r.rows.map(x => ({ clinic: x.clinic, klass: x.klass, downDelta: x.downDelta, upDelta: x.upDelta, netDelta: x.netDelta })) }))
+      .catch(() => undefined);
+    return () => { live = false; };
+  }, [run, scope]);
+  return data;
+}
+
 function useProviders(): ProviderLite[] | null {
   const run = useRcaAction(api.growth.providers);
   const [rows, setRows] = useState<ProviderLite[] | null>(null);
@@ -292,6 +310,7 @@ export function GrowthView({ periods, teamLead }: { periods: ExecPeriod[]; teamL
   const pgd = usePG(scope, "all");
   const prov = useProviders();
   const gutRaw = useGut();
+  const switchRaw = useSwitchers(scope);
   const fzQ = useRcaQuery(api.fzScores.clinics, { password: pw(), periodId: "all", sales: scope });
   const saveOpp = useMutation(api.growth.saveOpp);
   const saveWeights = useMutation(api.growth.saveWeights);
@@ -336,8 +355,8 @@ export function GrowthView({ periods, teamLead }: { periods: ExecPeriod[]; teamL
       lost: gutRaw.lists.lost.filter(r => clinicIds.has(r.clinic)), noGut: gutRaw.lists.noGut.filter(r => clinicIds.has(r.clinic)),
       newPatients: gutRaw.lists.newPatients?.filter(r => clinicIds.has(r.clinic)), followUp: gutRaw.lists.followUp?.filter(r => clinicIds.has(r.clinic)),
     } } : gutRaw;
-    return discover({ windowDays, book: book as never, rows, lapsed, fz: fzLite, whitespace: pgx?.whitespace ?? null, providers, gut, families: pgd.data ? pgd.data.clinics.map(c => ({ clinic: c.clinic, win: c.win })) : null }).map(d => resolve(d, (st?.opps?.[d.id] ?? {}) as Saved));
-  }, [book, rows, lapsedRows, clinicIds, scope, windowDays, st?.opps, pgx, prov, fzLite, gutRaw, pgd.data]);
+    return discover({ windowDays, book: book as never, rows, lapsed, fz: fzLite, whitespace: pgx?.whitespace ?? null, providers, gut, switchers: switchRaw, families: pgd.data ? pgd.data.clinics.map(c => ({ clinic: c.clinic, win: c.win })) : null }).map(d => resolve(d, (st?.opps?.[d.id] ?? {}) as Saved));
+  }, [book, rows, lapsedRows, clinicIds, scope, windowDays, st?.opps, pgx, prov, fzLite, gutRaw, switchRaw, pgd.data]);
 
   const [pillar, setPillar] = useState<"All" | Pillar>("All");
   const [source, setSource] = useState<"all" | "scorecard" | "supporting">("all");
