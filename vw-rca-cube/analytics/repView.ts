@@ -8,7 +8,7 @@
  * reason instead of being estimated.
  */
 import { isAtRiskInWindow, type WholeWindow } from "./atRisk";
-import { inCallFirstWindow } from "./callFirst";
+import { AT_RISK_TAG, inCallFirstWindow, onCallFirstTag } from "./callFirst";
 import { isCompanyLead, isTeamScope, teamOf } from "./scope";
 import { goalRowFor, mainSettings, newGoalFor, newGoalOf, newShareOver, sliceOf, targetScale } from "./baseline";
 import { v } from "convex/values";
@@ -379,7 +379,9 @@ export const book = scopedQuery({
     // 45 days a clinic is treated as lost and drops off this list). Ranked
     // by dollars at stake first, days overdue second. Optional health-note
     // filter narrows to one tag for a targeted call list.
-    const healthTags = [...new Set(existing.flatMap(r => r.health))].sort();
+    // The At risk chip comes first: the same clinics as the At-risk card (all of them are on this list: not churned, ordered 5+ days ago).
+    const atRiskSet = new Set(atRiskRows.map(r => r.clinic));
+    const healthTags = [AT_RISK_TAG, ...new Set(existing.flatMap(r => r.health))].sort((a, b) => (a === AT_RISK_TAG ? -1 : b === AT_RISK_TAG ? 1 : a.localeCompare(b)));
     const pstatusTags = [...new Set(existing.flatMap(r => r.pstatus))].sort();
     const callFirstPool = existing
       .map(r => {
@@ -390,18 +392,20 @@ export const book = scopedQuery({
       // Overdue = at least 5 days since the last order and not yet churned by the clinic's OWN threshold (45 days, or 3 x its
       // usual gap for a slow buyer), so a slow-rhythm clinic stays on the list past day 45 (2026-10-19).
       .filter(x => inCallFirstWindow(x.last, isChurned(x.r)))
-      .filter(x => !args.health || x.r.health.includes(args.health))
+      .filter(x => !args.health || onCallFirstTag(args.health, x.r.clinic, x.r.health, atRiskSet))
       .filter(x => !args.pstatus || x.r.pstatus.includes(args.pstatus));
     // Chip counts (Shyam 2026-09-30): clinics on the Call-first list per tag, cross-filtered by the other active chip row. They use the
     // same window as the list (the 5-44 day window here was left behind by the 2026-10-19 change, so a chip could say 12 and open 15).
     const inWin = existing.filter(r => inCallFirstWindow(since(cutoff, r.lastOrderAllTime), isChurned(r)));
     const healthCounts: Record<string, number> = {};
     for (const r of inWin)
-      if (!args.pstatus || r.pstatus.includes(args.pstatus))
+      if (!args.pstatus || r.pstatus.includes(args.pstatus)) {
         for (const h of new Set(r.health)) healthCounts[h] = (healthCounts[h] ?? 0) + 1;
+        if (atRiskSet.has(r.clinic)) healthCounts[AT_RISK_TAG] = (healthCounts[AT_RISK_TAG] ?? 0) + 1;
+      }
     const pstatusCounts: Record<string, number> = {};
     for (const r of inWin)
-      if (!args.health || r.health.includes(args.health))
+      if (!args.health || onCallFirstTag(args.health, r.clinic, r.health, atRiskSet))
         for (const p of new Set(r.pstatus)) pstatusCounts[p] = (pstatusCounts[p] ?? 0) + 1;
     const callFirst = callFirstPool
       .sort((a, b) => b.r.expected - a.r.expected || (b.last ?? 0) - (a.last ?? 0))

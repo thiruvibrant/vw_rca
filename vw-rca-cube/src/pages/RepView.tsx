@@ -1006,7 +1006,7 @@ function TodayTab({
       </div>
       <HowCalc>
         <p>Who is on it: existing clinics (not new, with a baseline) that last ordered at least 5 days ago and have not churned by their own threshold: 45 days, or three times their usual gap between orders for a slow buyer.</p>
-        <p>Order: the clinic's goal for the window, biggest first, then the longest overdue. The plan's "Overdue reorder calls" uses the dollars each clinic is short of that goal instead. The chips narrow the list by health note or portfolio status.</p>
+        <p>Order: the clinic's goal for the window, biggest first, then the longest overdue. The plan's "Overdue reorder calls" uses the dollars each clinic is short of that goal instead. The chips narrow the list by health note, by "At risk" (the clinics on the At-risk card: late against their own rhythm and short of baseline) or by portfolio status.</p>
       </HowCalc>
       <div className="rv-chips">
         <button type="button" className={health === "" ? "is-on" : ""} onClick={() => onHealth("")}>
