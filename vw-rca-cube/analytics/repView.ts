@@ -8,6 +8,7 @@
  * reason instead of being estimated.
  */
 import { isAtRiskInWindow, type WholeWindow } from "./atRisk";
+import { inCallFirstWindow } from "./callFirst";
 import { isCompanyLead, isTeamScope, teamOf } from "./scope";
 import { goalRowFor, mainSettings, newGoalFor, newGoalOf, newShareOver, sliceOf, targetScale } from "./baseline";
 import { v } from "convex/values";
@@ -388,15 +389,12 @@ export const book = scopedQuery({
       })
       // Overdue = at least 5 days since the last order and not yet churned by the clinic's OWN threshold (45 days, or 3 x its
       // usual gap for a slow buyer), so a slow-rhythm clinic stays on the list past day 45 (2026-10-19).
-      .filter(x => x.last !== null && x.last >= 5 && !isChurned(x.r))
+      .filter(x => inCallFirstWindow(x.last, isChurned(x.r)))
       .filter(x => !args.health || x.r.health.includes(args.health))
       .filter(x => !args.pstatus || x.r.pstatus.includes(args.pstatus));
-    // Chip counts (Shyam 2026-09-30): clinics in the 5–44 day window per tag,
-    // cross-filtered by the other active chip row.
-    const inWin = existing.filter(r => {
-      const last = since(cutoff, r.lastOrderAllTime);
-      return last !== null && last >= 5 && last < 45;
-    });
+    // Chip counts (Shyam 2026-09-30): clinics on the Call-first list per tag, cross-filtered by the other active chip row. They use the
+    // same window as the list (the 5-44 day window here was left behind by the 2026-10-19 change, so a chip could say 12 and open 15).
+    const inWin = existing.filter(r => inCallFirstWindow(since(cutoff, r.lastOrderAllTime), isChurned(r)));
     const healthCounts: Record<string, number> = {};
     for (const r of inWin)
       if (!args.pstatus || r.pstatus.includes(args.pstatus))
