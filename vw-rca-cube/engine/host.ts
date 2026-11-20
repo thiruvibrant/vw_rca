@@ -40,6 +40,7 @@ export const SERVED_MODULES = [
   "familyStops",
   "fzScores",
   "momentum",
+  "cohortFlow",
 ];
 
 /** Individual functions served from otherwise internal modules (the admin rep dropdown reads names from the snapshot). */

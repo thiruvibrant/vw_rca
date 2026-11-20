@@ -249,3 +249,20 @@ Proposal with the data behind it: "Proposal: one definition of Top 20% clinics" 
   and new top clinics stay in the list with their label (a churned top clinic with open FZ results is a win-back call);
   every clinic list has a Cohort filter. Rows are sorted by open FZ results, then last-12-months revenue. On an older
   engine the page keeps the Cube flag.
+
+## 22. Cohort movement, last 12 months (2026-11-20, Thiru's dev branch)
+- **What:** a collapsible table under the trend check on the overview (company or a team lead) and under the scorecard in
+  the rep view (a rep or a team): per month, clinics that moved **up** (rest -> Top 20%), **back** (Churned -> anything),
+  **down** (Top 20% -> rest) and into **Churned**, with revenue, net clinics and first orders. Groups follow `moveOf`, so
+  they agree with the clinic card's arrow. Click a number for the clinics.
+- **Revenue:** the clinic's revenue in the month before a drop or churn (what was at stake), in the month of a gain.
+- **Who is counted:** every clinic with revenue in the last 12 months (`cohortHistory`, built by
+  `analytics/cohortHistory.ts`): clinicMeta's clinics with their stored labels, plus clinics that went quiet before the
+  baseline window, labelled with the same rules from their order dates. Owners of the quiet ones come from one extra
+  identity pull over the months before the rebuild's other pulls; monthly revenue reuses the Top 20% list pull.
+- **Noise:** "back within 2 mo" counts clinics that went Churned at a month-end and ordered again by one of the next two.
+  In Nov 2026, 830 of 7,690 clinics switched in and out of Churned 4+ times in 12 months: the churn line (45 days or 3x
+  the clinic's gap) is crossed often by irregular orderers. A fix (e.g. Churned only after two month-ends past the line,
+  "Lapsed" in between) is a decision for Shyam.
+- **Code:** `clinicLabels.ts` (`flowsOf`, `flowGroupOf`), `cohortFlow.ts` (`summary`, `clinics`), `src/pages/CohortFlow.tsx`;
+  tests in `scripts/clinic-labels.test.ts`.

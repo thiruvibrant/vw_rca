@@ -10,6 +10,7 @@ const CLEARABLE = [
   "stateDaily",
   "cohortDaily",
   "cohortBaseline",
+  "cohortHistory",
   "stateBaseline",
   "clinicMeta",
   "clinicPeriod",
@@ -109,6 +110,25 @@ export const putCohortBaseline = internalMutation({
   handler: async (ctx, { rows, gen }) => {
     for (const row of rows)
       await ctx.db.insert("cohortBaseline", { ...row, gen });
+  },
+});
+
+export const putCohortHistory = internalMutation({
+  args: {
+    rows: v.array(
+      v.object({
+        clinic: v.string(),
+        name: v.string(),
+        sales: v.string(),
+        teamLead: v.string(),
+        labelAt: v.record(v.string(), v.string()),
+        rev: v.record(v.string(), v.number()),
+      }),
+    ),
+    gen: v.number(),
+  },
+  handler: async (ctx, { rows, gen }) => {
+    for (const row of rows) await ctx.db.insert("cohortHistory", { ...row, gen });
   },
 });
 
@@ -542,6 +562,7 @@ const GEN_TABLES = [
   "stateDaily",
   "cohortDaily",
   "cohortBaseline",
+  "cohortHistory",
   "stateBaseline",
   "clinicMeta",
   "clinicPeriod",

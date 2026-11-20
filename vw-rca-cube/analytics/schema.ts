@@ -198,6 +198,22 @@ const schema = defineSchema({
     .index("by_gen_sales", ["gen", "sales"])
     .index("by_gen_lead", ["gen", "teamLead"]),
 
+  // Cohort movement, last 12 months (2026-11-20, analytics/cohortHistory.ts, cohortFlow.ts): every clinic with a label at a
+  // month-end in the last 12 months (clinicMeta's clinics plus those that went quiet earlier), its label codes by date
+  // and its revenue by month ("YYYY-MM", current month to date).
+  cohortHistory: defineTable({
+    clinic: v.string(),
+    name: v.string(),
+    sales: v.string(),
+    teamLead: v.string(),
+    labelAt: v.record(v.string(), v.string()),
+    rev: v.record(v.string(), v.number()),
+    gen: v.optional(v.number()),
+  })
+    .index("by_gen", ["gen"])
+    .index("by_gen_sales", ["gen", "sales"])
+    .index("by_gen_lead", ["gen", "teamLead"]),
+
   // Current-window actuals per clinic per period (all / month / week / day).
   // expectedRevenue/expectedOrdersP75 are the Power BI-equivalent rolling
   // P75 baseline (trailing 13 weeks / 3 months, same formula as

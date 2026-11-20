@@ -7,6 +7,7 @@ import { isFzFamily } from "@/lib/fzAgenda";
 import { cellDelta, ExecClinicList, type ExecSel, MiniMeter, ProviderRetentionFunnel, useExecScorecard, usePillarStatus } from "./RepView";
 import { overviewTourAvailable, startOverviewTour } from "@/lib/usertour";
 import { MomentumTile } from "./MomentumTile";
+import { CohortFlow } from "./CohortFlow";
 import "./exec.css";
 
 /** The slice of a bridge period this view reads. */
@@ -608,6 +609,7 @@ export function ExecutiveView({
       ) : null}
 
       <MomentumTile teamLead={teamLead || undefined} />
+      <CohortFlow teamLead={teamLead || undefined} scopeLabel={teamLead ? `${teamLead}'s team` : "Company-wide"} />
 
       {sc.ready ? (
         <section data-tour="ov-pillars">

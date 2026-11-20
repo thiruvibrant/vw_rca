@@ -224,6 +224,73 @@ export function labelDateOf(periodId: string, currentEnd: string): string {
   return windowDates(periodId, key, currentEnd).at;
 }
 
+/**
+ * Cohort movement month by month (2026-11-20): for each pair of consecutive label dates, the clinics whose label changed,
+ * in four disjoint groups (the ▲/▼ of moveOf, with churn split out):
+ *   up    Active - rest -> Active - top 20%          down  Active - top 20% -> Active - rest
+ *   back  Churned -> anything else                   churn anything else -> Churned
+ * plus clinics with their first label (first order) and a count of clinics that went Churned and were back within the next
+ * two label dates (`bounced`: noise from irregular orderers, not real losses). Revenue per clinic is `rev(clinic, month)`:
+ * the month before the move for down and churn (what was at stake), the month of the move for up and back (what came back).
+ */
+export type FlowGroup = "up" | "down" | "back" | "churn";
+export type FlowRow = {
+  /** label date before and after */
+  from: string;
+  to: string;
+  /** clinics labelled at both dates */
+  labelled: number;
+  first: number;
+  bounced: number;
+  groups: Record<FlowGroup, { n: number; rev: number }>;
+};
+
+export function flowGroupOf(before: Label | undefined, now: Label | undefined): FlowGroup | null {
+  if (!before || !now || before === now) return null;
+  if (now === "churned") return "churn";
+  if (before === "churned") return "back";
+  if (before === "retained_top20" && now === "retained_rest") return "down";
+  if (before === "retained_rest" && now === "retained_top20") return "up";
+  return null;
+}
+
+export function flowsOf(
+  clinics: Array<{ clinic: string; labelAt?: Record<string, string> }>,
+  dates: string[],
+  rev: (clinic: string, month: string) => number = () => 0,
+): FlowRow[] {
+  const ds = [...dates].sort();
+  const out: FlowRow[] = [];
+  for (let i = 1; i < ds.length; i++) {
+    const from = ds[i - 1], to = ds[i];
+    const row: FlowRow = {
+      from,
+      to,
+      labelled: 0,
+      first: 0,
+      bounced: 0,
+      groups: { up: { n: 0, rev: 0 }, down: { n: 0, rev: 0 }, back: { n: 0, rev: 0 }, churn: { n: 0, rev: 0 } },
+    };
+    for (const c of clinics) {
+      const a = decodeLabel(c.labelAt?.[from]), b = decodeLabel(c.labelAt?.[to]);
+      if (!b) continue;
+      if (!a) {
+        row.first++;
+        continue;
+      }
+      row.labelled++;
+      const g = flowGroupOf(a, b);
+      if (!g) continue;
+      const month = monthOf(g === "down" || g === "churn" ? from : to);
+      row.groups[g].n++;
+      row.groups[g].rev += rev(c.clinic, month);
+      if (g === "churn" && ds.slice(i + 1, i + 3).some(d => { const l = decodeLabel(c.labelAt?.[d]); return !!l && l !== "churned"; })) row.bounced++;
+    }
+    out.push(row);
+  }
+  return out;
+}
+
 /** Direction of a label change. Null when either side is missing or nothing changed. */
 export function moveOf(before: Label | undefined, now: Label | undefined): Move | null {
   if (!before || !now || before === now) return null;

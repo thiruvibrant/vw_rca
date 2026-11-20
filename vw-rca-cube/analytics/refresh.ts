@@ -37,9 +37,13 @@ import { newClinicFunnelGroups } from "./newClinicFunnel";
 import { eq, O, ordersRows, rows as cubeRows } from "./cube";
 import { dateOf, familyOf, num, splitFamilies, TABLE } from "./powerbi";
 import { labelAtOr, labelDates, labelDateSpan, labelOf, labelsFor, listMonthOf, pastLabelDates, revenueMonthsFor, tierLists, type TierList } from "./clinicLabels";
+import { cohortHistoryRows } from "./cohortHistory";
 
-/** Revenue by month ("YYYY-MM") and clinic for the monthly Top 20% lists in force on `days` (analytics/clinicLabels.ts). */
-async function tierListsFor(days: string[]): Promise<Map<string, TierList>> {
+/**
+ * The monthly Top 20% lists in force on `days` (analytics/clinicLabels.ts), and the revenue by month ("YYYY-MM") and
+ * clinic they were ranked on (also the monthly revenue in the cohort movement table, analytics/cohortHistory.ts).
+ */
+async function tierListsFor(days: string[]): Promise<{ lists: Map<string, TierList>; monthRev: Map<string, Map<string, number>> }> {
   const listMonths = [...new Set(days.map(listMonthOf))];
   const months = revenueMonthsFor(listMonths);
   const rows = await Promise.all(
@@ -56,7 +60,7 @@ async function tierListsFor(days: string[]): Promise<Map<string, TierList>> {
     }
     monthRev.set(m, byClinic);
   });
-  return tierLists(monthRev, listMonths);
+  return { lists: tierLists(monthRev, listMonths), monthRev };
 }
 
 // Lifecycle stages (Shyam, 2026-10-16): new = first order in the window; retained_* = ordered in the baseline AND the
@@ -404,6 +408,14 @@ export const refreshData = internalAction({
       // Monthly Top 20% lists (rolling 12 months) and the dates a label is kept for (analytics/clinicLabels.ts).
       const labelDays = labelDates(currentStart, currentEnd);
       const pTierLists = tierListsFor(labelDays);
+      // Owners of clinics that ordered only before this rebuild's other pulls start (same columns as pIdentity), for the
+      // cohort movement table (analytics/cohortHistory.ts).
+      const historyStart = `${labelDays[0].slice(0, 7)}-01`;
+      const pIdentityPast =
+        historyStart < rangeStart
+          ? ordersRows({ by: ["clinic_id", "customer_practice_name", "state", "country_name", "team_lead", "sales_id"],
+              start: historyStart, end: addDays(rangeStart, -1), m: { rev: "revenue" } })
+          : Promise.resolve([] as Awaited<typeof pIdentity>);
 
       // Year-to-date VA-only orders per clinic — paired with the existing
       // YTD order total (pClinicYtd) for the High VA Dependency share.
@@ -709,7 +721,7 @@ export const refreshData = internalAction({
         priorOf.set(String(r[`${TABLE}[clinic_id]`] ?? ""), { rev: num(r, "rev"), ord: num(r, "ord") });
       }
       const lifeYear = currentEnd.slice(0, 4);
-      const tierListOf = await pTierLists;
+      const { lists: tierListOf, monthRev: tierMonthRev } = await pTierLists;
       const currentList = tierListOf.get(listMonthOf(currentEnd));
       const labelAtOf = new Map<string, Record<string, string>>();
       const lifeOf = new Map<string, Lifecycle>();
@@ -1619,6 +1631,35 @@ export const refreshData = internalAction({
         monthOrdersOf.set(clinic, series.filter(o => o > 0).length);
       }
 
+      // Cohort movement table (analytics/cohortHistory.ts): every clinic with a label in the last 12 months, with its
+      // labels and monthly revenue. Owners come from the same pull as clinicMeta's, or the earlier one for quiet clinics.
+      const pastOwner = new Map<string, { name: string; sales: string; teamLead: string; rev: number }>();
+      for (const r of await pIdentityPast) {
+        const id = String(r[`${TABLE}[clinic_id]`]);
+        const rev = num(r, "rev");
+        if ((pastOwner.get(id)?.rev ?? -Infinity) >= rev) continue;
+        const salesId = String(r[`${TABLE}[sales_id]`] ?? "");
+        const lead = String(r[`${TABLE}[team_lead]`] ?? "").trim();
+        pastOwner.set(id, {
+          name: String(r[`${TABLE}[customer_practice_name]`] ?? `Clinic ${id}`),
+          sales: salesName.get(salesId) ?? (salesId && salesId !== "null" ? `Sales ${salesId}` : "—"),
+          teamLead: lead && lead !== "null" ? lead : "—",
+          rev,
+        });
+      }
+      const historyMonth = currentEnd.slice(0, 7);
+      const cohortHistory = cohortHistoryRows({
+        labelDays,
+        lists: tierListOf,
+        monthRev: tierMonthRev,
+        current: { month: historyMonth, rev: new Map([...(periodAgg.get(`m:${historyMonth}`) ?? new Map<string, Agg>())].map(([c, a]) => [c, a.revenue])) },
+        labelAtOf,
+        firstOrderOf,
+        orderDatesOf: orderDatesForLife,
+        priorRevOf: id => priorOf.get(id)?.rev ?? 0,
+        identityOf: id => identity.get(id) ?? pastOwner.get(id),
+      });
+
       const clinicMeta = [...cohortOf].map(([clinic, cohort]) => {
         const b = baseByClinic.get(clinic);
         const idty = identity.get(clinic);
@@ -2082,6 +2123,10 @@ export const refreshData = internalAction({
           rows => () =>
             ctx.runMutation(internal.ingest.putClinicMeta, { rows, gen }),
         ),
+        ...chunk(cohortHistory, 500).map(
+          rows => () =>
+            ctx.runMutation(internal.ingest.putCohortHistory, { rows, gen }),
+        ),
         ...chunk(newClinicOrderSeq, 500).map(
           rows => () =>
             ctx.runMutation(internal.ingest.putNewClinicOrderSeq, {
@@ -2518,6 +2563,14 @@ export const refreshSnapshot = internalAction({
       // Monthly Top 20% lists (rolling 12 months) and the dates a label is kept for (analytics/clinicLabels.ts).
       const labelDays = labelDates(currentStart, currentEnd);
       const pTierLists = tierListsFor(labelDays);
+      // Owners of clinics that ordered only before this rebuild's other pulls start (same columns as pIdentity), for the
+      // cohort movement table (analytics/cohortHistory.ts).
+      const historyStart = `${labelDays[0].slice(0, 7)}-01`;
+      const pIdentityPast =
+        historyStart < rangeStart
+          ? ordersRows({ by: ["clinic_id", "customer_practice_name", "state", "country_name", "team_lead", "sales_id"],
+              start: historyStart, end: addDays(rangeStart, -1), m: { rev: "revenue" } })
+          : Promise.resolve([] as Awaited<typeof pIdentity>);
 
       // Year-to-date VA-only orders per clinic — paired with the existing
       // YTD order total (pClinicYtd) for the High VA Dependency share.
@@ -2808,7 +2861,7 @@ export const refreshSnapshot = internalAction({
         priorOf.set(String(r[`${TABLE}[clinic_id]`] ?? ""), { rev: num(r, "rev"), ord: num(r, "ord") });
       }
       const lifeYear = currentEnd.slice(0, 4);
-      const tierListOf = await pTierLists;
+      const { lists: tierListOf, monthRev: tierMonthRev } = await pTierLists;
       const currentList = tierListOf.get(listMonthOf(currentEnd));
       const labelAtOf = new Map<string, Record<string, string>>();
       const lifeOf = new Map<string, Lifecycle>();
@@ -3700,6 +3753,35 @@ export const refreshSnapshot = internalAction({
         monthOrdersOf.set(clinic, series.filter(o => o > 0).length);
       }
 
+      // Cohort movement table (analytics/cohortHistory.ts): every clinic with a label in the last 12 months, with its
+      // labels and monthly revenue. Owners come from the same pull as clinicMeta's, or the earlier one for quiet clinics.
+      const pastOwner = new Map<string, { name: string; sales: string; teamLead: string; rev: number }>();
+      for (const r of await pIdentityPast) {
+        const id = String(r[`${TABLE}[clinic_id]`]);
+        const rev = num(r, "rev");
+        if ((pastOwner.get(id)?.rev ?? -Infinity) >= rev) continue;
+        const salesId = String(r[`${TABLE}[sales_id]`] ?? "");
+        const lead = String(r[`${TABLE}[team_lead]`] ?? "").trim();
+        pastOwner.set(id, {
+          name: String(r[`${TABLE}[customer_practice_name]`] ?? `Clinic ${id}`),
+          sales: salesName.get(salesId) ?? (salesId && salesId !== "null" ? `Sales ${salesId}` : "—"),
+          teamLead: lead && lead !== "null" ? lead : "—",
+          rev,
+        });
+      }
+      const historyMonth = currentEnd.slice(0, 7);
+      const cohortHistory = cohortHistoryRows({
+        labelDays,
+        lists: tierListOf,
+        monthRev: tierMonthRev,
+        current: { month: historyMonth, rev: new Map([...(periodAgg.get(`m:${historyMonth}`) ?? new Map<string, Agg>())].map(([c, a]) => [c, a.revenue])) },
+        labelAtOf,
+        firstOrderOf,
+        orderDatesOf: orderDatesForLife,
+        priorRevOf: id => priorOf.get(id)?.rev ?? 0,
+        identityOf: id => identity.get(id) ?? pastOwner.get(id),
+      });
+
       const clinicMeta = [...cohortOf].map(([clinic, cohort]) => {
         const b = baseByClinic.get(clinic);
         const idty = identity.get(clinic);
@@ -4153,6 +4235,10 @@ export const refreshSnapshot = internalAction({
         ...chunk(clinicMeta, 500).map(
           rows => () =>
             ctx.runMutation(internal.ingest.putClinicMeta, { rows, gen }),
+        ),
+        ...chunk(cohortHistory, 500).map(
+          rows => () =>
+            ctx.runMutation(internal.ingest.putCohortHistory, { rows, gen }),
         ),
         ...chunk(newClinicOrderSeq, 500).map(
           rows => () =>

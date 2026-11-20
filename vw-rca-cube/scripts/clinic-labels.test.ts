@@ -2,7 +2,8 @@
 // window's end, which dates a window compares, and the direction of a move. No Cube, no Convex.
 //   node --import tsx scripts/clinic-labels.test.ts
 import assert from "node:assert/strict";
-import { decodeLabel, encodeLabel, labelAtOr, labelDateOf, labelDates, labelDateSpan, labelOf, labelsFor, lifeIn, moveOf, onListOf, pastLabelDates, revenueMonthsFor, standingIn, tierLists, windowDates } from "../analytics/clinicLabels";
+import { decodeLabel, encodeLabel, flowGroupOf, flowsOf, labelAtOr, labelDateOf, labelDates, labelDateSpan, labelOf, labelsFor, lifeIn, moveOf, onListOf, pastLabelDates, revenueMonthsFor, standingIn, tierLists, windowDates } from "../analytics/clinicLabels";
+import { cohortHistoryRows } from "../analytics/cohortHistory";
 import { topCohortAtRisk } from "../analytics/callFirst";
 
 let n = 0;
@@ -181,6 +182,60 @@ test("Call-first chip: today's Top 20% label, not a past tab's", () => {
   // On a past tab clinic 1 read Active - rest then but is on today's list; clinic 2 the other way round.
   const rows = [{ clinic: "1", cohort: "retained_rest", cohortNow: "retained_top20" }, { clinic: "2", cohort: "retained_top20", cohortNow: "retained_rest" }];
   assert.deepEqual([...topCohortAtRisk(rows.map(r => ({ clinic: r.clinic, cohort: r.cohortNow ?? r.cohort })), atRisk)], ["1"]);
+});
+
+test("cohort movement: four groups that follow the moves, first labels, bounce-backs, revenue by the right month", () => {
+  const D = ["2026-08-31", "2026-09-30", "2026-10-31", "2026-11-19"];
+  const clinics = [
+    { clinic: "up", labelAt: { "2026-08-31": "r", "2026-09-30": "T", "2026-10-31": "T", "2026-11-19": "T" } },
+    { clinic: "down", labelAt: { "2026-08-31": "T", "2026-09-30": "r", "2026-10-31": "r", "2026-11-19": "r" } },
+    { clinic: "flip", labelAt: { "2026-08-31": "r", "2026-09-30": "c", "2026-10-31": "r", "2026-11-19": "c" } },
+    { clinic: "gone", labelAt: { "2026-08-31": "T", "2026-09-30": "C", "2026-10-31": "c", "2026-11-19": "c" } },
+    { clinic: "newbie", labelAt: { "2026-10-31": "n", "2026-11-19": "N" } },
+    { clinic: "same", labelAt: { "2026-08-31": "r", "2026-09-30": "r", "2026-10-31": "r", "2026-11-19": "r" } },
+  ];
+  const rev = (c: string, m: string) => ({ "up|2026-09": 900, "down|2026-08": 700, "flip|2026-08": 50, "gone|2026-08": 4000, "flip|2026-10": 60 } as Record<string, number>)[`${c}|${m}`] ?? 0;
+  const [sep, oct, nov] = flowsOf(clinics, D, rev);
+  assert.deepEqual([sep.from, sep.to], ["2026-08-31", "2026-09-30"]);
+  assert.equal(sep.labelled, 5);
+  assert.deepEqual(sep.groups, { up: { n: 1, rev: 900 }, down: { n: 1, rev: 700 }, back: { n: 0, rev: 0 }, churn: { n: 2, rev: 4050 } });
+  assert.equal(sep.bounced, 1); // "flip" is back at Oct 31; "gone" is not
+  assert.deepEqual(oct.groups.back, { n: 1, rev: 60 }); // revenue in the month it came back
+  assert.equal(oct.first, 1);
+  assert.equal(nov.groups.churn.n, 1);
+  assert.equal(nov.bounced, 0); // nothing after it yet
+  // Every group agrees with the clinic card's arrow.
+  for (const c of clinics)
+    for (let i = 1; i < D.length; i++) {
+      const a = decodeLabel(c.labelAt[D[i - 1] as keyof typeof c.labelAt]), b = decodeLabel(c.labelAt[D[i] as keyof typeof c.labelAt]);
+      const g = flowGroupOf(a, b);
+      if (g) assert.equal(moveOf(a, b), g === "up" || g === "back" ? "up" : "down");
+    }
+});
+
+test("cohort history: clinics outside the rebuild are labelled from their orders; revenue by month; owners", () => {
+  const lists = tierLists(revenue(), ["2026-10", "2026-11"]);
+  const monthRev = new Map([["2026-10", new Map([["10", 1000], ["99", 0]])], ["2026-09", new Map([["77", 300]])]]);
+  const rows = cohortHistoryRows({
+    labelDays: ["2026-09-30", "2026-10-31", "2026-11-12"],
+    lists,
+    monthRev,
+    current: { month: "2026-11", rev: new Map([["10", 250]]) },
+    labelAtOf: new Map([["10", { "2026-10-31": "T", "2026-11-12": "T" }]]),
+    firstOrderOf: new Map([["77", "2026-01-05"]]),
+    orderDatesOf: new Map([["77", ["2026-01-05", "2026-09-10"]]]),
+    priorRevOf: () => 0,
+    identityOf: c => (c === "10" ? { name: "Ten", sales: "Rep A", teamLead: "Lead" } : undefined),
+  });
+  const by = new Map(rows.map(r => [r.clinic, r]));
+  assert.deepEqual(by.get("10")!.rev, { "2026-10": 1000, "2026-11": 250 });
+  assert.equal(by.get("10")!.sales, "Rep A");
+  // Clinic 77 is outside the rebuild (no baseline or window revenue): labelled with the same rules, reactivated at Sep 30
+  // (back after an 8-month gap), churned by Nov 12.
+  assert.equal(decodeLabel(by.get("77")!.labelAt["2026-09-30"]), "reactivated");
+  assert.equal(decodeLabel(by.get("77")!.labelAt["2026-11-12"]), "churned");
+  assert.equal(by.get("77")!.sales, "—");
+  assert.ok(!by.has("99")); // no revenue, not in the rebuild: left out
 });
 
 console.log(`${n} checks passed`);
