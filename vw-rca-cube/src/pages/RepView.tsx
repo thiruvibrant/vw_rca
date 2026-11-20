@@ -26,8 +26,8 @@ import { geoKeyOf } from "../../analytics/geoKey";
 import { AREAS } from "../../analytics/fzRules";
 import { labelDateOf } from "../../analytics/clinicLabels";
 import { discover, resolve, type ClinicLite, type FzLite, type GutLite, type LapsedLite, type Opp, type ProviderLite, type Saved, type SwitchLite } from "@/lib/growthOpps";
-import { growthActions, IN_PLANS } from "@/lib/planLink";
-import { cellImpact, dialImpact, doFirst } from "@/lib/planImpact";
+import { growthActions } from "@/lib/planLink";
+import { actionImpact, cellImpact, dialImpact, doFirst, filterQueue, marginalFill, type CellIn, type PlanRow, type QueueFilter } from "@/lib/planImpact";
 import { findFzFamily, fzCrossSell, fzListSel, fzWhitespace, isFzFamily } from "@/lib/fzAgenda";
 import { QuietBoundary } from "@/components/QuietBoundary";
 import { ANNOUNCEMENTS, FZ_ANNOUNCEMENT_ID, announcementsFor, hasUnseenAnnouncement, latestAnnouncementId } from "@/lib/announcements";
@@ -3947,7 +3947,21 @@ const PILLAR_COLOR: Record<PKey, string> = {
 const WEIGHT: Record<string, number> = { behind: 1.5, watch: 1.15, good: 1 };
 const hrsFor = (n: number, per: number) => Math.max(1, Math.min(10, Math.ceil(n * per)));
 
-type ActionRow = { est?: number; ids?: string[]; id: string; p: PKey; label: string; detail: string; hrs: number; up: number; pr: number; exp: number; score: number; inPlan?: boolean; /** The committed Growth opportunity this action carries out. */ growth?: string };
+type ActionRow = {
+  est?: number; ids?: string[]; id: string; p: PKey; label: string; detail: string; hrs: number; up: number; pr: number;
+  /** Expected dollars on its own. */
+  exp: number;
+  /** Expected dollars it adds after the actions above it (each clinic counted once, src/lib/planImpact.ts marginalFill). */
+  mexp: number;
+  /** Its clinics already covered by actions above it. */
+  overlap: number;
+  /** Marginal $ per hour x pillar weight: the ranking. */
+  score: number;
+  inPlan?: boolean;
+  /** The Growth opportunity this action carries out, and whether the team committed to it (else Suggested). */
+  growth?: string;
+  growthKind?: "committed" | "suggested" | null;
+};
 
 /** What each action's upside dollars are (weekly), shown in the plan's "how expected revenue is calculated" panel. */
 const UPSIDE_BASIS: Record<string, string> = {
@@ -3980,11 +3994,11 @@ function touchRate(b: Book): { pr: number; n: number; own: number | null } {
 }
 
 /** Product actions from the status model (STOPPED / DECLINING per test) and the product mix. Dollars are weekly. */
-function productActions(b: Book, pgd: ReturnType<typeof usePG>, famName: string, fz?: FzResp): Array<Omit<ActionRow, "exp" | "score" | "pr"> & { prMul: number }> {
+function productActions(b: Book, pgd: ReturnType<typeof usePG>, famName: string, fz?: FzResp): Array<Omit<ActionRow, "exp" | "score" | "pr" | "mexp" | "overlap"> & { prMul: number }> {
   const d = pgd.data as ({ clinics: PGClinic[]; baseWeeks?: number } | null);
   if (!d || !d.baseWeeks) return [];
   const wk = d.baseWeeks;
-  const out: Array<Omit<ActionRow, "exp" | "score" | "pr"> & { prMul: number }> = [];
+  const out: Array<Omit<ActionRow, "exp" | "score" | "pr" | "mexp" | "overlap"> & { prMul: number }> = [];
   const famsOfClinic = (c: PGClinic) => Object.keys(c.base ?? {});
   // Weekly baseline revenue of the families a clinic stopped / is declining on (test names run longer than the family name).
   const lost = (status: string) => {
@@ -4034,8 +4048,8 @@ function rankActions(b: Book, fams: Wins, plan: PlanState, pgd?: ReturnType<type
   if (!o) return [];
   const st = pillarStatus(b, fams);
   const tr = touchRate(b);
-  const raw: Array<Omit<ActionRow, "exp" | "score" | "pr"> & { prMul: number; prFix?: number }> = [];
-  const add = (n: number | undefined, a: Omit<ActionRow, "exp" | "score" | "pr" | "hrs" | "detail"> & { detail: string; per: number; prMul: number }) => {
+  const raw: Array<Omit<ActionRow, "exp" | "score" | "pr" | "mexp" | "overlap"> & { prMul: number; prFix?: number }> = [];
+  const add = (n: number | undefined, a: Omit<ActionRow, "exp" | "score" | "pr" | "hrs" | "detail" | "mexp" | "overlap"> & { detail: string; per: number; prMul: number }) => {
     if (!n) return;
     const { per, ...rest } = a;
     raw.push({ ...rest, hrs: hrsFor(n, per) });
@@ -4058,27 +4072,23 @@ function rankActions(b: Book, fams: Wins, plan: PlanState, pgd?: ReturnType<type
   if (pgd) raw.push(...productActions(b, pgd, famName, fz));
   // Committed Growth opportunities (src/lib/planLink.ts): the same work already here is tagged; the rest is added with the committed rate
   // change as its likelihood.
+  // Every Growth opportunity that is not Dropped: committed ones fill in like any action, suggested ones wait for a pin.
   if (growth) {
     const have = new Set(raw.map(r => r.id));
     const { tags, extra } = growthActions(growth.opps, have);
-    for (const r of raw) if (tags[r.id]) r.growth = tags[r.id];
-    for (const g of extra) raw.push({ ids: g.ids, id: g.id, p: g.p as PKey, label: g.label, detail: g.detail, hrs: hrsFor(g.n, 0.25), up: g.up, prMul: 1, prFix: g.pr, growth: g.label });
+    for (const r of raw) if (tags[r.id]) { r.growth = tags[r.id].name; r.growthKind = tags[r.id].committed ? "committed" : null; }
+    for (const g of extra) raw.push({ ids: g.ids, id: g.id, p: g.p as PKey, label: g.label, detail: g.detail, hrs: hrsFor(g.n, 0.25), up: g.up, prMul: 1, prFix: g.pr, growth: g.label, growthKind: g.committed ? "committed" : "suggested" });
   }
-  const rows: ActionRow[] = raw
-    .map(({ prMul, prFix, ...a0 }) => {
-      const set = plan.hrs?.[a0.id];
-      // `est` keeps the estimate so the page can show what the rep changed.
-      const a = { ...a0, est: a0.hrs, hrs: set && set > 0 ? set : a0.hrs };
-      const pr = prFix ?? Math.min(0.9, tr.pr * prMul);
-      const exp = a.up * pr;
-      const w = plan.weighted ? WEIGHT[st[a.p] ?? "good"] ?? 1 : 1;
-      return { ...a, pr, exp, score: (exp / a.hrs) * w };
-    })
-    .sort((a, b2) => b2.score - a.score);
-  let used = 0;
-  for (const r of rows) if (plan.pins[r.id] === "in") { used += r.hrs; r.inPlan = true; }
-  for (const r of rows) if (!r.inPlan && plan.pins[r.id] !== "out" && used + r.hrs <= plan.sellHours) { used += r.hrs; r.inPlan = true; }
-  return rows;
+  const scored = raw.map(({ prMul, prFix, ...a0 }) => {
+    const set = plan.hrs?.[a0.id];
+    // `est` keeps the estimate so the page can show what the rep changed.
+    const a = { ...a0, est: a0.hrs, hrs: set && set > 0 ? set : a0.hrs };
+    const pr = prFix ?? Math.min(0.9, tr.pr * prMul);
+    const w = plan.weighted ? WEIGHT[st[a.p] ?? "good"] ?? 1 : 1;
+    return { ...a, pr, exp: a.up * pr, w, pin: plan.pins[a.id], defaultOut: a.growthKind === "suggested" };
+  });
+  // Fill by marginal $ per hour, each clinic counted once (src/lib/planImpact.ts marginalFill).
+  return marginalFill(scored, plan.sellHours).map(({ w: _w, pin: _pin, defaultOut: _d, mscore, ...r }) => ({ ...r, score: mscore }));
 }
 
 /** Growth opportunities the team committed to, sized for this rep's (or team's) own clinics. */
@@ -4090,9 +4100,10 @@ type GrowthPlan = { opps: Opp[] };
  * (Gut Zoomer lists, dormant providers, lapsed Gut Zoomer) cut to these clinics on the engine. Opportunities that need the product-mix
  * worksheet (baseline candidates, whitespace pairs) are left to the plan's own actions.
  */
-function useGrowthPlan(sales: string): GrowthPlan | null {
-  const committed = useQuery(api.growth.committed, sales ? { password: pw() } : "skip") as Record<string, { status: string; tgt?: number }> | undefined;
-  const any = !!committed && Object.values(committed).some(c => IN_PLANS.includes(c.status));
+function useGrowthPlan(sales: string, on = true): GrowthPlan | null {
+  // Saved Growth decisions (status and target); opportunities nobody saved use their defaults and come in as Suggested.
+  const committed = useQuery(api.growth.committed, sales && on ? { password: pw() } : "skip") as Record<string, { status: string; tgt?: number }> | undefined;
+  const any = !!committed;
   const bookAll = useRcaQuery(api.repView.book, any ? { password: pw(), periodId: "all", sales } : "skip");
   const rowsQ = useRcaQuery(api.repView.rowsByFocus, any ? { password: pw(), periodId: "all", sales, focus: "" } : "skip");
   const lapsedQ = useRcaQuery(api.growth.lapsedFor, any ? { password: pw(), sales } : "skip");
@@ -4123,15 +4134,18 @@ function useGrowthPlan(sales: string): GrowthPlan | null {
     const lapsed: LapsedLite[] | null = lapsedQ?.ready ? (lapsedQ.rows as LapsedLite[]) : null;
     const days = (bookAll as { days?: number }).days ?? 365;
     const defs = discover({ windowDays: days, book: bookAll as never, rows, lapsed, fz, whitespace: null, providers: extra?.providers ?? null, gut: extra?.gut ?? null, switchers: extra?.switchers ?? null, families: null });
-    const opps = defs.filter(d => committed[d.id]).map(d => resolve(d, { status: committed[d.id].status as Saved["status"], tgt: committed[d.id].tgt }));
+    const opps = defs
+      .map(d => resolve(d, committed[d.id] ? { status: committed[d.id].status as Saved["status"], tgt: committed[d.id].tgt } : {}))
+      .filter(o => o.status !== "Dropped");
     return opps.length ? { opps } : null;
   }, [any, committed, bookAll, rowsQ, fzQ, lapsedQ, extra]);
 }
 
 /** One ranking for the Today strip and the plan page. */
-function usePlanRows(b: Book | null, fams: Wins, plan: PlanState, sales: string, periodId: string): ActionRow[] {
+function usePlanRows(b: Book | null, fams: Wins, plan: PlanState, sales: string, periodId: string, withGrowth = false): ActionRow[] {
   const pgd = usePG(sales, periodId);
-  const growth = useGrowthPlan(sales);
+  // Growth opportunities need several company-wide lists, so they load only on the week plan itself.
+  const growth = useGrowthPlan(sales, withGrowth);
   const famName = useMemo(() => {
     const t = new Map<string, number>();
     for (const c of pgd.data?.clinics ?? []) for (const [f, n] of Object.entries(c.life)) t.set(f, (t.get(f) ?? 0) + n);
@@ -4155,7 +4169,7 @@ function NextBestAction({ rows, onPlan }: { rows: ActionRow[]; onPlan: () => voi
       </div>
       <div className="rv-nba-num">
         <div className="rv-nba-ph">{K(a.score)}/h</div>
-        <div className="rv-nba-sub">{a.hrs}h · {K(a.exp)} expected</div>
+        <div className="rv-nba-sub">{a.hrs}h · {K(a.mexp)} expected</div>
       </div>
       <button type="button" className="rv-nba-btn" onClick={onPlan}>See my week</button>
     </div>
@@ -4340,8 +4354,47 @@ function RepNewsBanner({ sales, onOpenNews, onGetClinics }: { sales: string; onO
   return <NewsBanner announcement={a} audienceLabel="every rep" showCta={!!(fz?.ready && fz.totals.clinics)} onCta={onGetClinics} onOpenNews={onOpenNews} />;
 }
 
+/** Week plan sections a rep can move and fold (2026-11-20); the order and folds are kept per rep in this browser. */
+type WpSection = "outcome" | "settings" | "first" | "hours" | "queue";
+const WP_DEFAULT: WpSection[] = ["outcome", "settings", "first", "hours", "queue"];
+type WpLayout = { order: WpSection[]; folded: Partial<Record<WpSection, boolean>> };
+function useWeekLayout(sales: string) {
+  const key = `rv-week-layout:${sales}`;
+  const read = (): WpLayout => {
+    try {
+      const v = JSON.parse(localStorage.getItem(key) || "null") as WpLayout | null;
+      if (v && Array.isArray(v.order)) {
+        const order = [...v.order.filter(x => WP_DEFAULT.includes(x)), ...WP_DEFAULT.filter(x => !v.order.includes(x))];
+        return { order, folded: v.folded ?? {} };
+      }
+    } catch { /* the default layout */ }
+    return { order: WP_DEFAULT, folded: {} };
+  };
+  const [lay, setLay] = useState<WpLayout>(read);
+  useEffect(() => setLay(read()), [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const save = (n: WpLayout) => {
+    setLay(n);
+    try { localStorage.setItem(key, JSON.stringify(n)); } catch { /* kept for this visit only */ }
+  };
+  return {
+    lay,
+    move: (id: WpSection, d: -1 | 1) => {
+      const o = [...lay.order];
+      const i = o.indexOf(id), j = i + d;
+      if (i < 0 || j < 0 || j >= o.length) return;
+      [o[i], o[j]] = [o[j], o[i]];
+      save({ ...lay, order: o });
+    },
+    fold: (id: WpSection) => save({ ...lay, folded: { ...lay.folded, [id]: !lay.folded[id] } }),
+    reset: () => save({ order: WP_DEFAULT, folded: {} }),
+    custom: lay.order.join() !== WP_DEFAULT.join() || Object.values(lay.folded).some(Boolean),
+  };
+}
+
+const SOURCE_LABEL = { scorecard: "Scorecard", "growth-committed": "Growth · committed", "growth-suggested": "Growth · suggested" } as const;
+
 function WeekPlan({ b, fams, plan, onPlan, sales, periodId }: { sales: string; periodId: string; b: Book; fams: Wins; plan: PlanState; onPlan: (p: PlanState) => void }) {
-  const rows = usePlanRows(b, fams, plan, sales, periodId);
+  const rows = usePlanRows(b, fams, plan, sales, periodId, true);
   const st = pillarStatus(b, fams);
   const [focus, setFocus] = useState<{ focus: string; label: string } | null>(null);
   const rowsQ = useRcaQuery(api.repView.rowsByFocus, sales && focus && periodId ? { password: pw(), periodId, sales, focus: focus.focus } : "skip");
@@ -4350,22 +4403,26 @@ function WeekPlan({ b, fams, plan, onPlan, sales, periodId }: { sales: string; p
   const paceQ = useRcaQuery(api.repView.pace, sales && periodId ? { password: pw(), periodId, sales } : "skip");
   const gp = paceQ?.ready ? paceQ : null;
   const tr = touchRate(b);
-  const [pillarSel, setPillarSel] = useState<PKey | null>(null);
+  const layout = useWeekLayout(sales);
+  const [filt, setFilt] = useState<QueueFilter>({ show: "all" });
+  const [sel, setSel] = useState<string | null>(null);
   const inPlan = rows.filter(r => r.inPlan);
-  const shownRows = pillarSel ? rows.filter(r => r.p === pillarSel) : rows;
+  const shownRows = filterQueue(rows.map(r => ({ ...r, mscore: r.score, inPlan: !!r.inPlan })), filt, st as Record<string, string>);
+  const filtersOn = !!(filt.pillar || filt.highRoi || filt.source || (filt.show && filt.show !== "all") || filt.behind);
   const setHrs = (id: string, v: number) => {
     const hrs = { ...(plan.hrs ?? {}) };
     if (Number.isFinite(v) && v > 0) hrs[id] = Math.min(40, Math.round(v * 2) / 2); else delete hrs[id];
     onPlan({ ...plan, hrs });
   };
   const used = inPlan.reduce((s, r) => s + r.hrs, 0);
-  const expTotal = inPlan.reduce((s, r) => s + r.exp, 0);
+  // Marginal dollars: each clinic once across the plan, so these add up.
+  const expTotal = inPlan.reduce((s, r) => s + r.mexp, 0);
   const pillars = (Object.keys(PILLAR_COLOR) as PKey[]).map(p => {
     const rs = inPlan.filter(r => r.p === p);
     const hrs = rs.reduce((s, r) => s + r.hrs, 0);
-    const ex = rs.reduce((s, r) => s + r.exp, 0);
+    const ex = rs.reduce((s, r) => s + r.mexp, 0);
     const mult = plan.weighted ? WEIGHT[st[p] ?? "good"] ?? 1 : 1;
-    return { p, hrs, ex, raw: hrs ? ex / hrs : 0, ph: hrs ? (ex / hrs) * mult : 0 };
+    return { p, hrs, ex, raw: hrs ? ex / hrs : 0, ph: hrs ? (ex / hrs) * mult : 0, n: rows.filter(r => r.p === p).length };
   }).sort((a, c) => c.ph - a.ph);
   const top = pillars[0];
   const overhead = 40 - plan.sellHours;
@@ -4376,188 +4433,276 @@ function WeekPlan({ b, fams, plan, onPlan, sales, periodId }: { sales: string; p
     onPlan({ ...plan, pins });
   };
   const statusLabel = (p: string) => (st[p] === "behind" ? "Behind" : st[p] === "watch" ? "Watch" : "On track");
-  const first = doFirst(rows, st as Record<string, string>);
-  // "If you follow this plan" (src/lib/planImpact.ts): the dials and the count cells the plan's actions move, if every action works as expected.
-  const impact = (() => {
-    const pr = inPlan.map(r => ({ id: r.id, p: r.p, ids: r.ids, exp: r.exp, pr: r.pr }));
-    const dials = gp && gp.plan > 0 ? dialImpact(pr, gp) : [];
-    const k = b.kpi as { atRisk?: number; churnRate?: number | null; churnBase?: number; churnedIds?: string[] };
-    const listOf = (id: string) => rows.find(r => r.id === id)?.ids ?? [];
-    const cells = cellImpact(pr, [
-      { label: "At-risk customers", ids: b.opp?.atRisk?.ids ?? [], now: k.atRisk ?? 0 },
-      { label: "Customer churn", ids: k.churnedIds ?? [], now: k.churnRate ?? 0, base: k.churnBase ?? 0 },
-      { label: "FZ cross-sell clinics", ids: listOf("crosssell"), now: listOf("crosssell").length },
-      { label: "Product whitespace (FZ)", ids: listOf("whitespace"), now: listOf("whitespace").length },
-    ]).filter(c => c.moved >= 0.5);
-    return { dials, cells };
-  })();
+  const first = doFirst(rows.map(r => ({ ...r, exp: r.mexp })), st as Record<string, string>);
+  // Outcome (src/lib/planImpact.ts): the dials and the count cells the plan's actions move, if every action works as expected; and the
+  // same for the one action selected in the queue ("what it brings" in the plan, "if you add it" out of it).
+  const k = b.kpi as { atRisk?: number; churnRate?: number | null; churnBase?: number; churnedIds?: string[] };
+  const listOf = (id: string) => rows.find(r => r.id === id)?.ids ?? [];
+  const lapsingIds: string[] = (b as { lapsingIds?: string[] }).lapsingIds ?? [];
+  const cellsIn: CellIn[] = [
+    { label: "At-risk customers", ids: b.opp?.atRisk?.ids ?? [], now: k.atRisk ?? 0 },
+    { label: "Lapsing clinics", ids: lapsingIds, now: lapsingIds.length },
+    { label: "Customer churn", ids: k.churnedIds ?? [], now: k.churnRate ?? 0, base: k.churnBase ?? 0 },
+    { label: "FZ cross-sell clinics", ids: listOf("crosssell"), now: listOf("crosssell").length },
+    { label: "Product whitespace (FZ)", ids: listOf("whitespace"), now: listOf("whitespace").length },
+  ];
+  const planRows: PlanRow[] = inPlan.map(r => ({ id: r.id, p: r.p, ids: r.ids, exp: r.exp, pr: r.pr }));
+  const dials = gp && gp.plan > 0 ? dialImpact(planRows, gp) : [];
+  const cells = cellImpact(planRows, cellsIn);
+  const selRow = sel ? rows.find(r => r.id === sel) ?? null : null;
+  const selImp = selRow ? actionImpact(planRows, { id: selRow.id, p: selRow.p, ids: selRow.ids, exp: selRow.exp, pr: selRow.pr }, gp && gp.plan > 0 ? gp : null, cellsIn) : null;
+  const pct = (x: number, g: number) => (g > 0 ? `${Math.round((x / g) * 100)}%` : "—");
+  const gap = gp ? Math.max(0, gp.plan - gp.heading) : 0;
+  const cover = gap ? Math.min(1, expTotal / gap) : 1;
+  const growthLoading = !rows.some(r => r.growthKind);
+
+  const sections: Record<WpSection, { title: string; info?: string; sub?: string; body: React.ReactNode } | null> = {
+    outcome: {
+      title: "Outcome this week",
+      info: "gap",
+      sub: "Where your scorecard is heading, and where it lands if every action in the plan works as expected. A clinic in several actions counts once. Estimates, not forecasts.",
+      body: (
+        <>
+          {dials.length ? (
+            <table className="rv-wp-imp">
+              <thead>
+                <tr>
+                  <th>Business</th><th>Heading now</th><th>With the plan</th><th>Goal</th><th>% of goal</th>
+                  <th className="sel">{selRow ? (selImp?.inPlan ? "This action brings" : "If you add it") : "Selected action"}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dials.map(d => {
+                  const b0 = selImp?.dialsBefore.find(x => x.key === d.key), a0 = selImp?.dialsAfter.find(x => x.key === d.key);
+                  const dv = b0 && a0 ? a0.withPlan - b0.withPlan : 0;
+                  return (
+                    <tr key={d.key}>
+                      <td>{d.label}</td><td>{K(d.now)}</td><td className="g">{K(d.withPlan)}</td><td>{K(d.goal)}</td>
+                      <td>{pct(d.now, d.goal)} → {pct(d.withPlan, d.goal)}{d.goal > 0 && d.now < d.goal && d.withPlan >= d.goal ? " ✓" : ""}</td>
+                      <td className="sel">{selRow ? (dv >= 0.5 ? `+${K(dv)} · ${pct(b0!.withPlan, d.goal)} → ${pct(a0!.withPlan, d.goal)}` : "—") : ""}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          ) : null}
+          <table className="rv-wp-imp">
+            <thead><tr><th>Scorecard cell</th><th>Now</th><th>With the plan</th><th className="sel">{selRow ? (selImp?.inPlan ? "This action" : "If you add it") : ""}</th></tr></thead>
+            <tbody>
+              {cells.map((c, i) => {
+                const f = (x: number) => (c.rate ? P(x) : String(Math.round(x)));
+                const dv = selImp ? selImp.cellsBefore[i].after - selImp.cellsAfter[i].after : 0;
+                return (
+                  <tr key={c.label}>
+                    <td>{c.label}</td><td>{f(c.now)}</td>
+                    <td className={c.moved >= 0.5 ? "g" : ""}>{f(c.after)}{c.moved >= 0.5 ? <span className="rv-wp-ks"> (≈{Math.round(c.moved)} back on track)</span> : null}</td>
+                    <td className="sel">{selRow && Math.abs(dv) > 1e-9 ? (c.rate ? `${P(-dv)}` : `−${Math.round(dv * 10) / 10}`) : ""}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {gp && gp.plan > 0 ? (
+            <>
+              <div className="rv-wp-pb big"><i style={{ width: `${(gap ? cover : 1) * 100}%`, background: !gap || cover >= 1 ? "#16a34a" : "#3b82f6" }} /></div>
+              <p className="rv-wp-ks">
+                {gap ? `Heading ${K(gp.heading)} against a goal of ${K(gp.plan)}: ${K(gap)} short. ` : `Heading ${K(gp.heading)}, at or above the goal of ${K(gp.plan)}. `}
+                {gap ? (cover >= 1 ? `The plan's ${K(expTotal)} more than covers it.` : `The plan's ${K(expTotal)} covers ${Math.round(cover * 100)}%; add hours or pin more actions in.`) : "The plan protects the lead."}
+                {" "}New Business actions count toward New revenue; every other pillar toward Existing business.
+              </p>
+            </>
+          ) : null}
+          {selRow ? (
+            <p className="rv-wp-ks">
+              Selected: <b>{selRow.label}</b> · {selImp?.inPlan ? "in the plan" : "not in the plan"} · {K(selImp?.dollars ?? 0)} expected after the actions above it · <a className="rv-plan-cl" role="button" onClick={() => setSel(null)}>clear</a>
+            </p>
+          ) : <p className="rv-wp-ks">Click "Impact" on any action in the queue to see what it brings to these numbers.</p>}
+        </>
+      ),
+    },
+    settings: {
+      title: "Plan settings",
+      body: (
+        <div className="rv-wp-kpis">
+          <div className="rv-wp-k">
+            <div className="rv-wp-kl">Hours I can sell</div>
+            <div className="rv-wp-step">
+              <button type="button" onClick={() => onPlan({ ...plan, sellHours: Math.max(10, plan.sellHours - 1) })}>−</button>
+              <span>{plan.sellHours}</span>
+              <button type="button" onClick={() => onPlan({ ...plan, sellHours: Math.min(40, plan.sellHours + 1) })}>+</button>
+            </div>
+            <div className="rv-wp-ks">{overhead}h of the 40 go to admin, meetings and travel</div>
+          </div>
+          <div className="rv-wp-k">
+            <div className="rv-wp-kl">Hours planned</div>
+            <div className="rv-wp-kv">{used}<small> / {plan.sellHours}h</small></div>
+            <div className="rv-wp-ks">{free > 0 ? `${free}h still free` : "Fully booked"}</div>
+          </div>
+          <div className="rv-wp-k">
+            <div className="rv-wp-kl">Expected revenue</div>
+            <div className="rv-wp-kv g">{K(expTotal)}</div>
+            <div className="rv-wp-ks">{K(expTotal / Math.max(used, 1))} per hour planned</div>
+          </div>
+          <button type="button" className={`rv-wp-k rv-wp-tog${plan.weighted ? " on" : ""}`} onClick={() => onPlan({ ...plan, weighted: !plan.weighted })}>
+            <div className="rv-wp-kl">Favour pillars that are behind <b>{plan.weighted ? "ON" : "OFF"}</b></div>
+            <div className="rv-wp-ks2">Behind pillars score x1.5, watch x1.15. Turn off to rank on revenue per hour alone.</div>
+          </button>
+        </div>
+      ),
+    },
+    first: first.length
+      ? {
+          title: "Do these first",
+          sub: `The most expected revenue per hour in your plan${plan.weighted ? ", with behind pillars favoured" : ""}.`,
+          body: (
+            <ol className="rv-wp-firstl">
+              {first.map(r => (
+                <li key={r.id}>
+                  <b>{r.label}</b>
+                  <span className="rv-wp-ks"> · {K(r.exp)} expected · {K(r.exp / Math.max(r.hrs, 0.5))}/h · {r.hrs}h · {r.why}{r.growth ? ` · Growth: ${r.growthKind === "committed" ? "committed" : "suggested"}` : ""} · </span>
+                  <a className="rv-plan-cl" role="button" onClick={() => openIds(r.ids, `${r.label} · this week`)}>{(r.ids ?? []).length} clinics ↓</a>
+                </li>
+              ))}
+            </ol>
+          ),
+        }
+      : null,
+    hours: {
+      title: "Your 40 hours",
+      info: "hours",
+      body: (
+        <>
+          <div className="rv-hours-key">
+            <span><i style={{ background: "#e5e7eb" }} />Admin and meetings</span>
+            {(Object.keys(PILLAR_COLOR) as PKey[]).map(p => <span key={p}><i style={{ background: PILLAR_COLOR[p] }} />{p}</span>)}
+          </div>
+          <div className="rv-hours">
+            {overhead > 0 ? <i style={{ flex: overhead, background: "#e5e7eb", color: "#6b7280" }}>{overhead >= 5 ? "Admin" : ""}</i> : null}
+            {(Object.keys(PILLAR_COLOR) as PKey[]).flatMap(p => inPlan.filter(r => r.p === p).map(r => (
+              <i key={r.id} style={{ flex: r.hrs, background: PILLAR_COLOR[p], color: p === "New Business" ? "#0f172a" : "#fff" }} title={`${r.label} · ${r.hrs}h`}>{r.hrs >= 2 ? `${r.hrs}h` : ""}</i>
+            )))}
+            {free > 0 ? <i style={{ flex: free, background: "#f3f4f6", color: "#6b7280" }}>{free >= 3 ? "free" : ""}</i> : null}
+          </div>
+        </>
+      ),
+    },
+    queue: {
+      title: "Which pillar first · Action queue",
+      info: "queue",
+      body: (
+        <div className="rv-plan-grid">
+          <div className="rv-wp-card p0">
+            <div className="rv-wp-ch pad"><div><h2>Which pillar first<Info k="pillar" /></h2><p className="rv-wp-ks">Ranked by weighted revenue per hour of what is in your plan. Click one to filter the queue.</p></div></div>
+            {pillars.map((p, i) => (
+              <button type="button" key={p.p} className={`rv-wp-pil${i === 0 ? " top" : ""}${filt.pillar === p.p ? " sel" : ""}`} onClick={() => setFilt(f => ({ ...f, pillar: f.pillar === p.p ? null : p.p }))} title={filt.pillar === p.p ? "Show every pillar again" : `Show only ${p.p} actions`}>
+                <div className="rv-wp-pr">
+                  <span><em>{i + 1}</em> <b>{p.p}</b> <i className={st[p.p] === "behind" ? "bad" : st[p.p] === "watch" ? "watch" : "good"} /></span>
+                  <span className="g">{K(p.raw)}/h</span>
+                </div>
+                <div className="rv-wp-pr s"><span>{statusLabel(p.p)} · {p.n} action{p.n === 1 ? "" : "s"}</span><span>{p.hrs}h · {K(p.ex)}</span></div>
+                <div className="rv-wp-pb"><i style={{ width: `${pillars[0].raw ? (p.raw / pillars[0].raw) * 100 : 0}%`, background: PILLAR_COLOR[p.p as PKey] }} /></div>
+              </button>
+            ))}
+          </div>
+          <div className="rv-wp-card p0">
+            <div className="rv-wp-ch pad"><div><h2>Action queue<Info k="queue" /></h2><p className="rv-wp-ks">Scorecard actions and Growth opportunities, ranked by the revenue per hour each adds after the actions above it (a clinic is counted once). Expected = upside x likelihood. {tr.own !== null ? `Likelihood starts from your own reorder rate after a touch: ${Math.round(tr.own * 100)}% of ${tr.n} clinics touched this quarter, blended toward 50% while the sample is small.` : "No touches logged this quarter, so likelihood starts at 50%."} Growth: suggested actions stay out until you pin them in.</p></div></div>
+            <div className="rv-wp-filters" role="group" aria-label="Filter the action queue">
+              <select value={filt.pillar ?? ""} onChange={e => setFilt(f => ({ ...f, pillar: e.target.value || null }))} aria-label="Pillar">
+                <option value="">Pillar · any</option>
+                {(Object.keys(PILLAR_COLOR) as PKey[]).map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+              <select value={filt.source ?? ""} onChange={e => setFilt(f => ({ ...f, source: (e.target.value || null) as QueueFilter["source"] }))} aria-label="Source">
+                <option value="">Source · any</option>
+                {(Object.keys(SOURCE_LABEL) as Array<keyof typeof SOURCE_LABEL>).map(s2 => <option key={s2} value={s2}>{SOURCE_LABEL[s2]}</option>)}
+              </select>
+              <span className="rv-win-toggle">
+                {(["all", "in", "out"] as const).map(v => (
+                  <button key={v} type="button" className={`rca-tab${(filt.show ?? "all") === v ? " is-active" : ""}`} onClick={() => setFilt(f => ({ ...f, show: v }))}>{v === "all" ? "All" : v === "in" ? "In plan" : "Out"}</button>
+                ))}
+              </span>
+              <button type="button" className={`rv-wp-chip${filt.highRoi ? " on" : ""}`} onClick={() => setFilt(f => ({ ...f, highRoi: !f.highRoi }))} title="Only the top third of actions by revenue per hour">High ROI</button>
+              <button type="button" className={`rv-wp-chip${filt.behind ? " on" : ""}`} onClick={() => setFilt(f => ({ ...f, behind: !f.behind }))} title="Only pillars that are Behind or Watch on your scorecard">Behind pillars</button>
+              <span className="rv-wp-ks">Showing {shownRows.length} of {rows.length}{growthLoading ? " · Growth opportunities loading…" : ""}</span>
+              {filtersOn ? <button type="button" className="rv-plan-cl" onClick={() => setFilt({ show: "all" })}>Clear</button> : null}
+            </div>
+            <div className="rv-plan-row hd"><span>#</span><span>Action</span><span>Hours</span><span>Expected</span><span>Per hour</span><span>Status</span><span>Impact</span></div>
+            {!shownRows.length ? <p className="rv-wp-ks pad">No actions match these filters.</p> : null}
+            {shownRows.map(r => (
+              <div role="button" tabIndex={0} key={r.id} className={`rv-plan-row${r.inPlan ? " in" : ""}${sel === r.id ? " is-sel" : ""}`} onClick={() => toggle(r.id, !!r.inPlan)} onKeyDown={ev => { if (ev.target === ev.currentTarget && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); toggle(r.id, !!r.inPlan); } }}>
+                <span className="rv-mono">{rows.indexOf(r) + 1}</span>
+                <span>
+                  <b>{r.label}</b>
+                  {r.growth ? <i className={`rv-wp-growth${r.growthKind === "committed" ? "" : " sug"}`} title={`${r.growthKind === "committed" ? "Committed" : "Suggested"} on the Growth page: ${r.growth}`}>{r.growthKind === "committed" ? "Growth" : "Suggested"}</i> : null}
+                  <em>{r.p} · <a className="rv-plan-cl" role="button" title="Show clinic list" onClick={ev => { ev.stopPropagation(); openIds(r.ids, `${r.label} · this week`); }}>{r.detail} ↓</a>{r.overlap ? ` · ${r.overlap} of its clinics already in actions above` : ""}</em>
+                </span>
+                <span className="rv-mono rv-hrs" title={r.est !== undefined && r.est !== r.hrs ? `Estimate was ${r.est}h; you set ${r.hrs}h. Clear the box to go back.` : "Type your own hours for this action"} onClick={ev => ev.stopPropagation()}>
+                  <input type="number" min={0.5} max={40} step={0.5} value={r.hrs} className={r.est !== undefined && r.est !== r.hrs ? "set" : ""} aria-label={`Hours for ${r.label}`}
+                    onChange={ev => setHrs(r.id, ev.target.value === "" ? 0 : Number(ev.target.value))} onKeyDown={ev => ev.stopPropagation()} />h
+                </span>
+                <span className="rv-mono" title={Math.abs(r.mexp - r.exp) >= 1 ? `${K(r.exp)} on its own; ${K(r.mexp)} after the actions above it` : undefined}>{K(r.mexp)}</span>
+                <span className="rv-mono g">{K(r.score)}</span>
+                <span className="rv-mono st">{r.inPlan ? "In plan" : "Out"}{plan.pins[r.id] ? " 📌" : ""}</span>
+                <span><button type="button" className={`rv-wp-impbtn${sel === r.id ? " on" : ""}`} onClick={ev => { ev.stopPropagation(); setSel(cur => (cur === r.id ? null : r.id)); }} title="Show what this action does to the outcome">{sel === r.id ? "◂ Hide" : "Impact ▸"}</button></span>
+              </div>
+            ))}
+            <details className="rv-wp-how">
+              <summary>How expected revenue is calculated</summary>
+              <div className="rv-wp-how-b">
+                <p><b>Expected revenue = upside x likelihood.</b> Upside is the weekly dollars at stake if the action works; likelihood is the chance it does. Hours default to a time per clinic and you can overwrite them in the queue.</p>
+                <p><b>No double counting:</b> a clinic in several actions is counted once, at its largest share. Each action's Expected is what it adds after the actions above it; hover it to see its own total. The plan is filled from the top by that revenue per hour.</p>
+                <p><b>Likelihood</b> starts from your reorder rate after a touch this quarter{tr.own !== null ? ` (${Math.round(tr.own * 100)}% of ${tr.n} touched clinics)` : ""}, blended toward 50% so a small sample cannot swing it. It becomes {Math.round(tr.pr * 100)}% for you, then each action scales it, capped at 90%. A Growth opportunity uses the rate change set on the Growth page.</p>
+                <p><b>Pillar boost:</b> when "Favour pillars that are behind" is on, per hour is multiplied by 1.5 for a behind pillar and 1.15 for watch. That changes the order, not the expected dollars.</p>
+                <table>
+                  <thead><tr><th>Action</th><th>What the upside is</th><th>Upside</th><th>Likelihood</th><th>Expected</th></tr></thead>
+                  <tbody>
+                    {rows.map(r => (
+                      <tr key={r.id}><td>{r.label}</td><td>{UPSIDE_BASIS[r.id] ?? (r.id.startsWith("growth:") ? "A week of the Growth opportunity's value for your clinics (clinics x value a year x 7/365); likelihood = the rate change set on the Growth page" : "")}</td><td>{K(r.up)}</td><td>{Math.round(r.pr * 100)}%</td><td>{K(r.exp)}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p>Prospect calls are not included: they need CRM lead data. These are planning estimates, not forecasts.</p>
+              </div>
+            </details>
+            <p className="rv-wp-ks pad">Click a row to pin it in or out; type in the Hours box to set your own time; click the clinic count for the list; Impact shows what the action does to your outcome.</p>
+          </div>
+        </div>
+      ),
+    },
+  };
+
   return (
     <>
       <div className="rv-wp-eye">My week · 40 hours · this week's book<Info k="week" /></div>
       <h1 className="rv-wp-h1">
         {top && top.hrs ? `Start with ${top.p}: ${K(top.raw)} per hour, ${Math.round((top.hrs / Math.max(used, 1)) * 100)}% of your selling time.` : "Nothing to plan yet this week."}
       </h1>
-      <p className="rv-wp-lead">Every action from Call first, the Opportunity agenda and your scorecard is ranked by expected revenue per hour, then filled into your selling hours from the top. Click any row to pin it in or take it out.</p>
-      {first.length ? (
-        <div className="rv-wp-card rv-wp-first">
-          <div className="rv-wp-ch"><h2>Do these first</h2><span className="rv-wp-ks">The most expected revenue per hour in your plan{plan.weighted ? ", with behind pillars favoured" : ""}</span></div>
-          <ol>
-            {first.map(r => (
-              <li key={r.id}>
-                <b>{r.label}</b>
-                <span className="rv-wp-ks"> · {K(r.exp)} expected · {K(r.exp / Math.max(r.hrs, 0.5))}/h · {r.hrs}h · {r.why}{r.growth ? " · Growth: committed" : ""} · </span>
-                <a className="rv-plan-cl" role="button" onClick={() => openIds(r.ids, `${r.label} · this week`)}>{(r.ids ?? []).length} clinics ↓</a>
-              </li>
-            ))}
-          </ol>
-        </div>
-      ) : null}
-      <div className="rv-wp-kpis">
-        <div className="rv-wp-k">
-          <div className="rv-wp-kl">Hours I can sell</div>
-          <div className="rv-wp-step">
-            <button type="button" onClick={() => onPlan({ ...plan, sellHours: Math.max(10, plan.sellHours - 1) })}>−</button>
-            <span>{plan.sellHours}</span>
-            <button type="button" onClick={() => onPlan({ ...plan, sellHours: Math.min(40, plan.sellHours + 1) })}>+</button>
-          </div>
-          <div className="rv-wp-ks">{overhead}h of the 40 go to admin, meetings and travel</div>
-        </div>
-        <div className="rv-wp-k">
-          <div className="rv-wp-kl">Hours planned</div>
-          <div className="rv-wp-kv">{used}<small> / {plan.sellHours}h</small></div>
-          <div className="rv-wp-ks">{free > 0 ? `${free}h still free` : "Fully booked"}</div>
-        </div>
-        <div className="rv-wp-k">
-          <div className="rv-wp-kl">Expected revenue</div>
-          <div className="rv-wp-kv g">{K(expTotal)}</div>
-          <div className="rv-wp-ks">{K(expTotal / Math.max(used, 1))} per hour planned</div>
-        </div>
-        <button type="button" className={`rv-wp-k rv-wp-tog${plan.weighted ? " on" : ""}`} onClick={() => onPlan({ ...plan, weighted: !plan.weighted })}>
-          <div className="rv-wp-kl">Favour pillars that are behind <b>{plan.weighted ? "ON" : "OFF"}</b></div>
-          <div className="rv-wp-ks2">Behind pillars score x1.5, watch x1.15. Turn off to rank on revenue per hour alone.</div>
-        </button>
-      </div>
-      {gp && gp.plan > 0 ? (() => {
-        const gap = Math.max(0, gp.plan - gp.heading);
-        const exNew = Math.max(0, (gp.newPlan ?? 0) - (gp.newHeading ?? 0)), exOld = Math.max(0, (gp.existingPlan ?? 0) - (gp.existingHeading ?? 0));
-        const cover = gap ? Math.min(1, expTotal / gap) : 1;
+      <p className="rv-wp-lead">
+        Every action from Call first, the Opportunity agenda, your scorecard and the Growth page is ranked by expected revenue per hour, then filled into your selling hours from the top. Click any row to pin it in or take it out.
+        {layout.custom ? <> <a className="rv-plan-cl" role="button" onClick={layout.reset}>Reset layout</a></> : null}
+      </p>
+      {layout.lay.order.map((id, i) => {
+        const sec = sections[id];
+        if (!sec) return null;
+        const folded = !!layout.lay.folded[id];
         return (
-          <div className="rv-wp-card rv-wp-gap">
-            <div className="rv-wp-ch"><h2>Gap to goal this week<Info k="gap" /></h2></div>
-            <div className="rv-wp-gapnums">
-              <div><span>Heading</span><b>{K(gp.heading)}</b></div>
-              <div><span>Goal</span><b>{K(gp.plan)}</b></div>
-              <div><span>{gap ? "Shortfall" : "Ahead by"}</span><b className={gap ? "bad" : "good"}>{K(gap || gp.heading - gp.plan)}</b></div>
-              <div><span>Plan expects</span><b className="g">{K(expTotal)}</b></div>
-            </div>
-            {gap ? (
-              <>
-                <div className="rv-wp-pb big"><i style={{ width: `${cover * 100}%`, background: cover >= 1 ? "#16a34a" : "#3b82f6" }} /></div>
-                <p className="rv-wp-ks">
-                  {cover >= 1 ? "The plan more than covers the shortfall." : `The plan covers ${Math.round(cover * 100)}% of the shortfall.`}
-                  {gp.existingPlan != null && gp.newPlan != null ? ` Existing clinics ${gp.existingHeading >= gp.existingPlan ? `${K(gp.existingHeading - gp.existingPlan)} ahead` : `${K(exOld)} short`}, new business ${(gp.newHeading ?? 0) >= gp.newPlan ? `${K((gp.newHeading ?? 0) - gp.newPlan)} ahead` : `${K(exNew)} short`}.` : ""}
-                  {cover < 1 ? " Add hours or pin more actions in to close it." : ""}
-                </p>
-              </>
-            ) : <p className="rv-wp-ks">Pace is at or above the weekly goal; the plan is about protecting it.</p>}
-          </div>
-        );
-      })() : null}
-      {impact.dials.length || impact.cells.length ? (
-        <div className="rv-wp-card rv-wp-impact">
-          <div className="rv-wp-ch"><h2>If you follow this plan</h2><span className="rv-wp-ks">Estimate · if every action in the plan works as expected · a clinic in several actions counts once</span></div>
-          {impact.dials.length ? (
-            <table className="rv-wp-imp">
-              <thead><tr><th>Scorecard dial (this week)</th><th>Heading now</th><th>With the plan</th><th>Goal</th><th>% of goal</th></tr></thead>
-              <tbody>
-                {impact.dials.map(d => (
-                  <tr key={d.key}>
-                    <td>{d.label}</td><td>{K(d.now)}</td><td className="g">{K(d.withPlan)}</td><td>{K(d.goal)}</td>
-                    <td>{d.goal > 0 ? `${Math.round((d.now / d.goal) * 100)}% → ${Math.round((d.withPlan / d.goal) * 100)}%` : "—"}{d.goal > 0 && d.now < d.goal && d.withPlan >= d.goal ? " ✓" : ""}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : null}
-          {impact.cells.length ? (
-            <ul className="rv-wp-impcells">
-              {impact.cells.map(c => (
-                <li key={c.label}><b>{c.label}</b>: {c.rate ? `${P(c.now)} → ${P(c.after)}` : `${Math.round(c.now)} → ${Math.round(c.after)}`} <span className="rv-wp-ks">(about {Math.round(c.moved)} clinic{Math.round(c.moved) === 1 ? "" : "s"} back on track)</span></li>
-              ))}
-            </ul>
-          ) : null}
-          <p className="rv-wp-ks">New Business actions count toward New revenue; every other pillar's toward Existing business. Pin actions in or out, or change hours, and this updates.</p>
-        </div>
-      ) : null}
-      <div className="rv-wp-card">
-        <div className="rv-wp-ch"><h2>Your 40 hours<Info k="hours" /></h2>
-          <div className="rv-hours-key">
-            <span><i style={{ background: "#e5e7eb" }} />Admin and meetings</span>
-            {(Object.keys(PILLAR_COLOR) as PKey[]).map(p => <span key={p}><i style={{ background: PILLAR_COLOR[p] }} />{p}</span>)}
-          </div>
-        </div>
-        <div className="rv-hours">
-          {overhead > 0 ? <i style={{ flex: overhead, background: "#e5e7eb", color: "#6b7280" }}>{overhead >= 5 ? "Admin" : ""}</i> : null}
-          {(Object.keys(PILLAR_COLOR) as PKey[]).flatMap(p => inPlan.filter(r => r.p === p).map(r => (
-            <i key={r.id} style={{ flex: r.hrs, background: PILLAR_COLOR[p], color: p === "New Business" ? "#0f172a" : "#fff" }} title={`${r.label} · ${r.hrs}h`}>{r.hrs >= 2 ? `${r.hrs}h` : ""}</i>
-          )))}
-          {free > 0 ? <i style={{ flex: free, background: "#f3f4f6", color: "#6b7280" }}>{free >= 3 ? "free" : ""}</i> : null}
-        </div>
-      </div>
-      <div className="rv-plan-grid">
-        <div className="rv-wp-card p0">
-          <div className="rv-wp-ch pad"><div><h2>Which pillar first<Info k="pillar" /></h2><p className="rv-wp-ks">Ranked by weighted revenue per hour of what is in your plan.</p></div></div>
-          {pillars.map((p, i) => (
-            <button type="button" key={p.p} className={`rv-wp-pil${i === 0 ? " top" : ""}${pillarSel === p.p ? " sel" : ""}`} onClick={() => setPillarSel(cur => (cur === p.p ? null : (p.p as PKey)))} title={pillarSel === p.p ? "Show every action again" : `Show only ${p.p} actions`}>
-              <div className="rv-wp-pr">
-                <span><em>{i + 1}</em> <b>{p.p}</b> <i className={st[p.p] === "behind" ? "bad" : st[p.p] === "watch" ? "watch" : "good"} /></span>
-                <span className="g">{K(p.raw)}/h</span>
-              </div>
-              <div className="rv-wp-pr s"><span>{statusLabel(p.p)}</span><span>{p.hrs}h · {K(p.ex)}</span></div>
-              <div className="rv-wp-pb"><i style={{ width: `${pillars[0].raw ? (p.raw / pillars[0].raw) * 100 : 0}%`, background: PILLAR_COLOR[p.p as PKey] }} /></div>
-            </button>
-          ))}
-        </div>
-        <div className="rv-wp-card p0">
-          <div className="rv-wp-ch pad"><div><h2>Action queue<Info k="queue" /></h2><p className="rv-wp-ks">Expected revenue = upside x likelihood. {tr.own !== null ? `Likelihood starts from your own reorder rate after a touch: ${Math.round(tr.own * 100)}% of ${tr.n} clinics touched this quarter, blended toward 50% while the sample is small, then adjusted per action.` : "No touches logged this quarter, so likelihood starts at 50%."} Win-backs count half their baseline.</p></div></div>
-          {pillarSel ? (
-            <div className="rv-wp-filter">Showing {pillarSel} actions only ({shownRows.length}) <button type="button" onClick={() => setPillarSel(null)}>Show all</button></div>
-          ) : null}
-          <div className="rv-plan-row hd"><span>#</span><span>Action</span><span>Hours</span><span>Expected</span><span>Per hour</span><span>Status</span></div>
-          {!shownRows.length ? <p className="rv-wp-ks pad">No actions in {pillarSel} this week.</p> : null}
-          {shownRows.map((r, i) => (
-            <div role="button" tabIndex={0} key={r.id} className={`rv-plan-row${r.inPlan ? " in" : ""}`} onClick={() => toggle(r.id, !!r.inPlan)} onKeyDown={ev => { if (ev.target === ev.currentTarget && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); toggle(r.id, !!r.inPlan); } }}>
-              <span className="rv-mono">{i + 1}</span>
-              <span><b>{r.label}</b>{r.growth ? <i className="rv-wp-growth" title={`Committed on the Growth page: ${r.growth}`}>Growth</i> : null}<em>{r.p} · <a className="rv-plan-cl" role="button" title="Show clinic list" onClick={ev => { ev.stopPropagation(); openIds(r.ids, `${r.label} · this week`); }}>{r.detail} ↓</a></em></span>
-              <span className="rv-mono rv-hrs" title={r.est !== undefined && r.est !== r.hrs ? `Estimate was ${r.est}h; you set ${r.hrs}h. Clear the box to go back.` : "Type your own hours for this action"} onClick={ev => ev.stopPropagation()}>
-                <input type="number" min={0.5} max={40} step={0.5} value={r.hrs} className={r.est !== undefined && r.est !== r.hrs ? "set" : ""} aria-label={`Hours for ${r.label}`}
-                  onChange={ev => setHrs(r.id, ev.target.value === "" ? 0 : Number(ev.target.value))} onKeyDown={ev => ev.stopPropagation()} />h
+          <section key={id} className={`rv-wp-card rv-wp-sec${folded ? " is-folded" : ""}`}>
+            <div className="rv-wp-sech">
+              <h2>{sec.title}{sec.info ? <Info k={sec.info} /> : null}</h2>
+              <span className="rv-wp-tools">
+                <button type="button" onClick={() => layout.move(id, -1)} disabled={i === 0} title="Move up" aria-label={`Move ${sec.title} up`}>▲</button>
+                <button type="button" onClick={() => layout.move(id, 1)} disabled={i === layout.lay.order.length - 1} title="Move down" aria-label={`Move ${sec.title} down`}>▼</button>
+                <button type="button" onClick={() => layout.fold(id)} aria-expanded={!folded} title={folded ? "Show" : "Fold"}>{folded ? "Show ▾" : "Fold ▴"}</button>
               </span>
-              <span className="rv-mono">{K(r.exp)}</span>
-              <span className="rv-mono g">{K(r.score)}</span>
-              <span className="rv-mono st">{r.inPlan ? "In plan" : "Out"}{plan.pins[r.id] ? " 📌" : ""}</span>
             </div>
-          ))}
-          <details className="rv-wp-how">
-            <summary>How expected revenue is calculated</summary>
-            <div className="rv-wp-how-b">
-              <p><b>Expected revenue = upside x likelihood.</b> Per hour = expected / hours. Upside is the weekly dollars at stake if the action works; likelihood is the chance it does. Hours default to a time per clinic and you can overwrite them in the queue.</p>
-              <p><b>Likelihood</b> starts from your reorder rate after a touch this quarter{tr.own !== null ? ` (${Math.round(tr.own * 100)}% of ${tr.n} touched clinics)` : ""}, blended toward 50% (as if 20 clinics at 50% were added) so a small sample cannot swing it. It becomes {Math.round(tr.pr * 100)}% for you, then each action scales it: win-backs and idle clinics lower, calls and restarts higher, capped at 90%.</p>
-              <p><b>Pillar boost:</b> when "Favour pillars that are behind" is on, per hour is multiplied by 1.5 for a behind pillar and 1.15 for watch. That changes the order, not the expected dollars.</p>
-              <table>
-                <thead><tr><th>Action</th><th>What the upside is</th><th>Upside</th><th>Likelihood</th><th>Expected</th></tr></thead>
-                <tbody>
-                  {rows.map(r => (
-                    <tr key={r.id}><td>{r.label}</td><td>{UPSIDE_BASIS[r.id] ?? (r.id.startsWith("growth:") ? "A week of the Growth opportunity's value for your clinics (clinics x value a year x 7/365); likelihood = the rate change the team committed to" : "")}</td><td>{K(r.up)}</td><td>{Math.round(r.pr * 100)}%</td><td>{K(r.exp)}</td></tr>
-                  ))}
-                </tbody>
-              </table>
-              <p>Prospect calls are not included: they need CRM lead data. These are planning estimates, not forecasts.</p>
-            </div>
-          </details>
-          <p className="rv-wp-ks pad">Click a row to pin it in or out; type in the Hours box to set your own time for an action; click the clinic count to see the clinic list. Prospect calls are not ranked yet: they need CRM lead data.</p>
-        </div>
-      </div>
+            {folded ? null : (
+              <>
+                {sec.sub ? <p className="rv-wp-ks">{sec.sub}</p> : null}
+                {sec.body}
+              </>
+            )}
+          </section>
+        );
+      })}
       {focus ? <FocusTable label={focus.label} rows={rowsQ?.ready ? rowsQ.rows : null} onClose={() => setFocus(null)} periodId={periodId} sales={sales} /> : null}
     </>
   );

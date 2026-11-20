@@ -117,12 +117,14 @@ Same waiting rule as the rep view's flow: the waits use "unclicked", which only 
 
 
 ## Week plan and Growth (2026-11-20)
-- **Do these first:** the three actions in the plan with the most expected revenue per hour, and why each is first.
-- **If you follow this plan:** each dial's heading now and with the plan, against the goal, plus the count cells the plan moves.
-  - New Business actions count toward New revenue; every other pillar's toward Existing business.
-  - A clinic in several actions counts once.
-  - It is an estimate: every action working as expected.
-- **Growth tag:** opportunities committed on the Growth page (Committed, Executing, Scaling) appear in each rep's plan with the rep's own clinics.
-  - Matching actions are tagged rather than added twice.
-  - On the Growth page those rows show "in reps' week plans".
+- **Sections:** Outcome this week, Plan settings, Do these first, Your 40 hours, Which pillar first + Action queue. Each moves (▲ ▼) and
+  folds; the layout is saved per rep in the browser (`rv-week-layout:<rep>`), Reset layout restores it.
+- **Outcome this week:** Existing business, New revenue and Combined (heading now, with the plan, goal, % of goal) and the cells the plan
+  moves (at-risk, Lapsing, churn, FZ cross-sell, whitespace). Impact on a queue row fills the Selected column with that action's effect.
+  - New Business actions count toward New revenue; every other pillar's toward Existing business. An estimate, not a forecast.
+- **No double counting:** the plan is filled by marginal revenue per hour (`marginalFill`, src/lib/planImpact.ts): a clinic in several
+  actions counts once, and each action's Expected is what it adds after the actions above it.
+- **Growth opportunities:** every one not Dropped appears with the rep's own clinics. Committed / Executing / Scaling ("Growth") are
+  filled in; the rest ("Suggested") wait for a pin. Matching actions are tagged rather than added twice. They load only on the week plan.
+- **Queue filters:** Pillar, Source, All / In plan / Out, High ROI (top third by $/h), Behind pillars.
 - **Storage:** the plan is saved per rep and per week in the browser. Saving to the server with check-offs is a later step.

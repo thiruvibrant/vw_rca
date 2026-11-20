@@ -648,6 +648,8 @@ export const book = scopedQuery({
       tenure,
       earlyLife,
       existingIds: existing.map(r => r.clinic),
+      // Lapsing clinics in this tab (analytics/clinicLabels.ts): the week plan's "Lapsing clinics" outcome row (2026-11-20).
+      lapsingIds: existing.filter(r => r.cohort === "lapsing").map(r => r.clinic),
       // Everyone in the book: clinics ordering or holding a goal in this tab, plus every new / reactivated / returning clinic,
       // so the New and Existing dials' clinic counts add up to this one (2026-10-18).
       allIds: rows.filter(r => r.orders > 0 || r.expected > 0 || churnBaseSet.has(r.clinic)).map(r => r.clinic),

@@ -971,3 +971,36 @@ button.rv-wp-pil.sel{background:#e0e9ff;box-shadow:inset 3px 0 0 #1d4ed8}
 .rv-wp-imp td.g { color: #15803d; font-weight: 600; }
 .rv-wp-impcells { margin: 10px 0 4px; padding-left: 18px; display: grid; gap: 3px; font-size: 13px; }
 .rv-wp-growth { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 9px; font-size: 11px; font-style: normal; background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; vertical-align: 1px; }
+
+/* My week plan: sections that move and fold, queue filters, per-action impact (2026-11-20). */
+.rv-wp-sec { position: relative; }
+.rv-wp-sec.is-folded { padding-top: 10px; padding-bottom: 10px; }
+.rv-wp-sech { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.rv-wp-sech h2 { margin: 0; font-size: 17px; font-weight: 600; }
+.rv-wp-tools { display: inline-flex; gap: 4px; flex: none; }
+.rv-wp-tools button { border: 1px solid var(--vw-gray-15); background: var(--vw-white); border-radius: 6px; padding: 2px 8px; font-size: 11px; color: var(--vw-gray-60); cursor: pointer; }
+.rv-wp-tools button:disabled { opacity: .35; cursor: default; }
+.rv-wp-tools button:hover:not(:disabled) { border-color: var(--vw-blue); color: var(--vw-ink); }
+.rv-wp-sec > .rv-wp-ks { margin: 6px 0 0; }
+.rv-wp-sec .rv-plan-grid { margin-top: 12px; }
+.rv-wp-sec .rv-plan-grid .rv-wp-card { margin-bottom: 0; }
+.rv-wp-sec .rv-wp-kpis { margin: 12px 0 0; }
+.rv-wp-sec .rv-hours-key { margin: 10px 0 8px; }
+.rv-wp-firstl { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 4px; }
+.rv-wp-firstl li b { font-weight: 600; }
+.rv-wp-imp th.sel, .rv-wp-imp td.sel { background: #f5f8ff; color: #1d4ed8; padding-left: 8px; white-space: nowrap; }
+.rv-wp-growth.sug { background: #fff7ed; color: #9a3412; border-color: #fed7aa; }
+.rv-wp-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 21px 12px; }
+.rv-wp-filters select { border: 1px solid var(--vw-gray-15); border-radius: 6px; padding: 4px 8px; font: inherit; font-size: 13px; background: var(--vw-white); color: var(--vw-ink); }
+.rv-wp-chip { border: 1px solid var(--vw-gray-15); border-radius: 999px; padding: 3px 12px; font-size: 12px; background: var(--vw-white); color: var(--vw-gray-60); cursor: pointer; }
+.rv-wp-chip.on { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
+.rv-plan-row { grid-template-columns: 30px minmax(0,1fr) 52px 84px 76px 78px 78px; }
+.rv-wp-sec .rv-wp-pb.big { height: 10px; margin: 12px 0 6px; background: #e5e7eb; border-radius: 6px; overflow: hidden; }
+.rv-wp-sec .rv-wp-pb.big i { display: block; height: 100%; }
+.rv-plan-row.is-sel { box-shadow: inset 3px 0 0 #1d4ed8; background: #f5f8ff; }
+.rv-wp-impbtn { border: 1px solid var(--vw-gray-15); border-radius: 6px; background: var(--vw-white); padding: 3px 8px; font-size: 12px; color: var(--vw-gray-60); cursor: pointer; white-space: nowrap; }
+.rv-wp-impbtn.on, .rv-wp-impbtn:hover { border-color: #1d4ed8; color: #1d4ed8; }
+@media (max-width: 900px) {
+  .rv-plan-row { grid-template-columns: 26px minmax(0,1fr) 52px 72px 64px; }
+  .rv-plan-row > span:nth-child(6), .rv-plan-row > span:nth-child(7) { display: none; }
+}

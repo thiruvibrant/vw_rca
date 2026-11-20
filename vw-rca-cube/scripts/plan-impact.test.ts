@@ -2,8 +2,9 @@
 // (src/lib/planLink.ts). No Cube, no Convex.
 //   npx tsx scripts/plan-impact.test.ts
 import assert from "node:assert/strict";
-import { cellImpact, dedupedExpected, dialImpact, doFirst } from "../src/lib/planImpact";
-import { growthActions } from "../src/lib/planLink";
+import { actionImpact, cellImpact, dedupedExpected, dialImpact, doFirst, filterQueue, marginalFill } from "../src/lib/planImpact";
+import { growthActions, PLAN_ACTIONS_OF } from "../src/lib/planLink";
+import { PILLARS } from "../src/lib/growthOpps";
 import type { Opp } from "../src/lib/growthOpps";
 
 let n = 0;
@@ -77,17 +78,81 @@ test("Growth link: committed work the plan already has is tagged, not added twic
     [
       opp({ id: "at-risk", name: "Recover at-risk clinics", pillar: "Retention" }),
       opp({ id: "gut-stopped", name: "Gut Zoomer: stopped", n: 4, value: 365, tgtEff: 25, clinicIds: ["7", "8", "9", "10"] }),
-      opp({ id: "providers", status: "Validated" }), // not committed: left out
+      opp({ id: "providers", status: "Dropped" }), // dropped: left out
       opp({ id: "second-order", name: "Second order" }), // no matching action this week: becomes its own
+      opp({ id: "state-gap", name: "States", status: "Validated", pillar: "Expansion" }), // not committed: suggested
     ],
     new Set(["atRisk", "callFirst", "lowAov"]),
   );
-  assert.deepEqual(r.tags, { atRisk: "Recover at-risk clinics", callFirst: "Recover at-risk clinics" });
-  assert.deepEqual(r.extra.map(x => x.id), ["growth:gut-stopped", "growth:second-order"]);
+  assert.deepEqual(r.tags, { atRisk: { name: "Recover at-risk clinics", committed: true }, callFirst: { name: "Recover at-risk clinics", committed: true } });
+  assert.deepEqual(r.extra.map(x => [x.id, x.committed]), [["growth:gut-stopped", true], ["growth:second-order", true], ["growth:state-gap", false]]);
   const g = r.extra[0];
   assert.equal(g.up, 4 * 365 * (7 / 365)); // 4 clinics x $365 a year, one week
   assert.equal(g.pr, 0.25);
   assert.deepEqual(g.ids, ["7", "8", "9", "10"]);
+});
+
+test("marginal fill: a clinic is counted once across actions; the plan's total equals the de-duplicated total", () => {
+  const rows = [
+    { id: "a", ids: ["1", "2"], exp: 200, hrs: 1 }, // 100 a clinic
+    { id: "b", ids: ["2", "3"], exp: 160, hrs: 1 }, // 80 a clinic; clinic 2 already covered by a
+    { id: "c", ids: ["9"], exp: 50, hrs: 1 },
+    { id: "s", ids: ["4"], exp: 500, hrs: 1, defaultOut: true }, // Growth: suggested
+  ];
+  const f = marginalFill(rows, 3);
+  const by = new Map(f.map(r => [r.id, r]));
+  assert.deepEqual(f.filter(r => r.inPlan).map(r => r.id), ["a", "b", "c"]);
+  assert.equal(by.get("b")!.mexp, 80); // only clinic 3
+  assert.equal(by.get("b")!.overlap, 1);
+  assert.equal(by.get("s")!.inPlan, false);
+  const inPlan = f.filter(r => r.inPlan);
+  assert.equal(inPlan.reduce((t, r) => t + r.mexp, 0), dedupedExpected(inPlan.map(r => ({ ...r, p: "x", pr: 0.5 }))).total);
+  // Pinned in: a suggested action joins first; pinned out never.
+  const g = marginalFill(rows.map(r => (r.id === "s" ? { ...r, pin: "in" as const } : r.id === "a" ? { ...r, pin: "out" as const } : r)), 3);
+  assert.deepEqual(g.filter(r => r.inPlan).map(r => r.id), ["s", "b", "c"]);
+});
+
+test("action impact: in-plan = with minus without; out-of-plan = with it added", () => {
+  const plan = [
+    { id: "x", p: "Retention", ids: ["a", "b"], exp: 100, pr: 0.5 },
+    { id: "z", p: "New Business", ids: ["c"], exp: 40, pr: 0.5 },
+  ];
+  const pace = { heading: 1000, plan: 1300, existingHeading: 900, existingPlan: 1100, newHeading: 100, newPlan: 200 };
+  const cells = [{ label: "At-risk customers", ids: ["a", "b", "q"], now: 3 }];
+  const a = actionImpact(plan, plan[0], pace, cells);
+  assert.equal(a.inPlan, true);
+  assert.equal(a.dollars, 100);
+  assert.equal(a.dialsAfter[0].withPlan - a.dialsBefore[0].withPlan, 100); // existing business
+  assert.equal(a.cellsBefore[0].after - a.cellsAfter[0].after, 1); // a and b at 50% each
+  const out = actionImpact(plan, { id: "y", p: "Retention", ids: ["b", "d"], exp: 60, pr: 0.5 }, pace, cells);
+  assert.equal(out.inPlan, false);
+  assert.equal(out.dollars, 30); // b is already worth 50 in x; d adds 30
+});
+
+test("queue filters: pillar, high ROI (top third), source, in/out, behind pillars", () => {
+  const rows = [
+    { id: "1", p: "Retention", mscore: 900, inPlan: true, growthKind: null },
+    { id: "2", p: "Retention", mscore: 300, inPlan: true, growthKind: "committed" as const },
+    { id: "3", p: "Expansion", mscore: 600, inPlan: false, growthKind: "suggested" as const },
+    { id: "4", p: "New Business", mscore: 100, inPlan: false, growthKind: null },
+    { id: "5", p: "Product Growth", mscore: 50, inPlan: true, growthKind: null },
+    { id: "6", p: "Expansion", mscore: 0, inPlan: false, growthKind: null },
+  ];
+  const st = { Retention: "behind", Expansion: "watch", "New Business": "good" };
+  const ids = (f: Parameters<typeof filterQueue>[1]) => filterQueue(rows, f, st).map(r => r.id);
+  assert.deepEqual(ids({ pillar: "Retention" }), ["1", "2"]);
+  assert.deepEqual(ids({ highRoi: true }), ["1", "3"]); // 5 rows with a score: top ceil(5/3) = 2
+  assert.deepEqual(ids({ source: "growth-suggested" }), ["3"]);
+  assert.deepEqual(ids({ source: "scorecard" }), ["1", "4", "5", "6"]);
+  assert.deepEqual(ids({ show: "out" }), ["3", "4", "6"]);
+  assert.deepEqual(ids({ behind: true, show: "in" }), ["1", "2"]);
+});
+
+test("every Growth pillar is a week-plan pillar; same-work links point at real plan actions", () => {
+  const plan = ["New Business", "Bundle growth", "Product Growth", "Retention", "Expansion"];
+  for (const p of PILLARS) assert.ok(plan.includes(p), p);
+  const actions = ["callFirst", "atRisk", "churned", "nearChurn", "secondOrder", "nurture", "returning", "lowAov", "followUp", "idle", "gap", "crosssell", "whitespace"];
+  for (const list of Object.values(PLAN_ACTIONS_OF)) for (const a of list) assert.ok(actions.includes(a), a);
 });
 
 console.log(`${n} checks passed`);

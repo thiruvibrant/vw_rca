@@ -83,3 +83,111 @@ export function doFirst<T extends { id: string; p: string; score: number; exp: n
       why: status[r.p] === "behind" ? `${r.p} is behind` : status[r.p] === "watch" ? `${r.p} is on watch` : "best $ per hour",
     }));
 }
+
+/**
+ * The week plan's fill without double counting (2026-11-20). Greedy by marginal $ per hour: an action's marginal expected dollars count
+ * only its clinics' share not already covered by actions chosen before it (each clinic once, at its largest share, as in
+ * dedupedExpected), so two actions on the same clinics (a Gut Zoomer list and the lapsed Gut Zoomer list, idle and untouched clinics) are
+ * not both counted in full. Pinned-in actions go first; pinned-out never; `defaultOut` actions (Growth: suggested) only when pinned in.
+ * Rows not chosen get the marginal they would add to the final plan. The sum of `mexp` over the plan equals dedupedExpected(plan).total.
+ */
+export type FillIn = { id: string; ids?: string[]; exp: number; hrs: number; /** pillar weight on the score */ w?: number; pin?: "in" | "out"; defaultOut?: boolean };
+export type FillOut<T> = T & { mexp: number; overlap: number; mscore: number; inPlan: boolean };
+
+export function marginalFill<T extends FillIn>(rows: T[], budget: number): Array<FillOut<T>> {
+  const best = new Map<string, number>();
+  const share = (r: FillIn) => (r.ids?.length ? r.exp / new Set(r.ids).size : 0);
+  const marginal = (r: FillIn) => {
+    if (!r.ids?.length) return { m: Math.max(0, r.exp), overlap: 0 };
+    const s = share(r);
+    let m = 0, overlap = 0;
+    for (const c of new Set(r.ids)) {
+      const b = best.get(c);
+      if (b !== undefined) overlap++;
+      m += Math.max(0, s - (b ?? 0));
+    }
+    return { m: r.exp > 0 ? m : 0, overlap };
+  };
+  const take = (r: FillIn) => {
+    const s = share(r);
+    for (const c of new Set(r.ids ?? [])) if (s > (best.get(c) ?? -Infinity)) best.set(c, s);
+  };
+  const scoreOf = (r: FillIn, m: number) => (m / Math.max(r.hrs, 0.25)) * (r.w ?? 1);
+  const out: Array<FillOut<T>> = [];
+  const left = new Set(rows.map((_, i) => i));
+  let used = 0;
+  // 1. Pinned in, by their own score.
+  const pinned = rows.map((r, i) => ({ r, i })).filter(x => x.r.pin === "in").sort((a, b) => scoreOf(b.r, b.r.exp) - scoreOf(a.r, a.r.exp));
+  for (const { r, i } of pinned) {
+    const { m, overlap } = marginal(r);
+    out.push({ ...r, mexp: m, overlap, mscore: scoreOf(r, m), inPlan: true });
+    take(r);
+    used += r.hrs;
+    left.delete(i);
+  }
+  // 2. Greedy on marginal $ per hour while hours remain.
+  for (;;) {
+    let pick = -1, pickScore = 0, pickM = { m: 0, overlap: 0 };
+    for (const i of left) {
+      const r = rows[i];
+      if (r.pin === "out" || r.defaultOut || used + r.hrs > budget) continue;
+      const mm = marginal(r);
+      const sc = scoreOf(r, mm.m);
+      if (mm.m > 0 && sc > pickScore) { pick = i; pickScore = sc; pickM = mm; }
+    }
+    if (pick < 0) break;
+    const r = rows[pick];
+    out.push({ ...r, mexp: pickM.m, overlap: pickM.overlap, mscore: pickScore, inPlan: true });
+    take(r);
+    used += r.hrs;
+    left.delete(pick);
+  }
+  // 3. The rest: what each would add to the plan as it stands.
+  const rest = [...left].map(i => {
+    const r = rows[i];
+    const { m, overlap } = marginal(r);
+    return { ...r, mexp: m, overlap, mscore: scoreOf(r, m), inPlan: false };
+  });
+  rest.sort((a, b) => b.mscore - a.mscore);
+  return [...out, ...rest];
+}
+
+/**
+ * What one action does to the outcome (2026-11-20): for an action in the plan, the plan with it vs without it ("what it brings"); for one
+ * out of the plan, the plan plus it vs the plan ("if you add it"). Dials and count cells as in dialImpact / cellImpact.
+ */
+export function actionImpact(plan: PlanRow[], row: PlanRow, pace: PaceLite | null, cells: CellIn[]) {
+  const inPlan = plan.some(r => r.id === row.id);
+  const base = inPlan ? plan.filter(r => r.id !== row.id) : plan;
+  const withR = inPlan ? plan : [...plan, row];
+  return {
+    inPlan,
+    dollars: dedupedExpected(withR).total - dedupedExpected(base).total,
+    dialsBefore: pace ? dialImpact(base, pace) : [],
+    dialsAfter: pace ? dialImpact(withR, pace) : [],
+    cellsBefore: cellImpact(base, cells),
+    cellsAfter: cellImpact(withR, cells),
+  };
+}
+
+/** Queue filters (2026-11-20). High ROI = the top third of actions by marginal $ per hour. */
+export type QueueFilter = { pillar?: string | null; highRoi?: boolean; source?: "scorecard" | "growth-committed" | "growth-suggested" | null; show?: "all" | "in" | "out"; behind?: boolean };
+export type QueueRow = { p: string; mscore: number; inPlan: boolean; growthKind?: "committed" | "suggested" | null };
+
+export function roiLine(rows: QueueRow[]): number {
+  const s = rows.map(r => r.mscore).filter(x => x > 0).sort((a, b) => b - a);
+  return s.length ? s[Math.max(0, Math.ceil(s.length / 3) - 1)] : Infinity;
+}
+
+export function filterQueue<T extends QueueRow>(rows: T[], f: QueueFilter, status: Record<string, string>): T[] {
+  const line = f.highRoi ? roiLine(rows) : -Infinity;
+  return rows.filter(
+    r =>
+      (!f.pillar || r.p === f.pillar) &&
+      (!f.highRoi || (r.mscore > 0 && r.mscore >= line)) &&
+      (!f.source ||
+        (f.source === "scorecard" ? !r.growthKind : f.source === "growth-committed" ? r.growthKind === "committed" : r.growthKind === "suggested")) &&
+      (!f.show || f.show === "all" || (f.show === "in" ? r.inPlan : !r.inPlan)) &&
+      (!f.behind || status[r.p] === "behind" || status[r.p] === "watch"),
+  );
+}

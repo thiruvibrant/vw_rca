@@ -52,12 +52,11 @@ export const state = gatedQuery({
   },
 });
 
-/** Statuses that put an opportunity into reps' week plans: the team decided to work it. */
-const IN_PLANS = ["Committed", "Executing", "Scaling"];
-
 /**
- * The committed opportunities, for a rep's week plan (2026-11-20): id, status and target rate only, never notes, owners or who saved them.
- * Open to rep logins; the opportunities are company decisions, and the clinics each rep sees are cut to the rep's own on the engine.
+ * The saved Growth decisions, for a rep's week plan (2026-11-20): id, status and target rate only, never notes, owners or who saved them.
+ * Every opportunity reaches the plan except Dropped ones (the page drops those): Committed, Executing and Scaling are filled in, the rest
+ * are Suggested. Opportunities nobody has saved are absent here and use their defaults. Open to rep logins; the opportunities are company
+ * decisions, and the clinics each rep sees are cut to the rep's own on the engine.
  */
 export const committed = scopedQuery({
   args: {},
@@ -68,7 +67,7 @@ export const committed = scopedQuery({
       if (!r.key.startsWith(OPP)) continue;
       try {
         const s = JSON.parse(r.value) as Saved;
-        if (s.status && IN_PLANS.includes(s.status)) opps[r.key.slice(OPP.length)] = { status: s.status, tgt: s.tgt };
+        if (s.status || s.tgt !== undefined) opps[r.key.slice(OPP.length)] = { status: s.status ?? "Quantified", tgt: s.tgt };
       } catch {
         /* a row that does not parse is ignored */
       }
