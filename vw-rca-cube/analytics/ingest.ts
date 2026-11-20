@@ -85,7 +85,7 @@ export const putStateBaseline = internalMutation({
 export const putCohortDaily = internalMutation({
   args: {
     rows: v.array(
-      v.object({ date: v.string(), cohort: v.string(), revenue: v.number() }),
+      v.object({ date: v.string(), cohort: v.string(), revenue: v.number(), labelDate: v.optional(v.string()) }),
     ),
     gen: v.number(),
   },
@@ -101,6 +101,7 @@ export const putCohortBaseline = internalMutation({
         cohort: v.string(),
         rates: v.array(v.number()),
         clinics: v.number(),
+        labelDate: v.optional(v.string()),
       }),
     ),
     gen: v.number(),

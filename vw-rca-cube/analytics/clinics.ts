@@ -3,7 +3,7 @@ import { internalQuery, type QueryCtx } from "./_generated/server";
 import { loadCfg } from "./config";
 import { isCompanyLead, isTeamScope, teamOf } from "./scope";
 import { ACTIVE_COHORTS } from "./lifecycle";
-import { decodeLabel, moveOf, windowDates } from "./clinicLabels";
+import { decodeLabel, labelDateOf, lifeIn, moveOf, windowDates } from "./clinicLabels";
 import { goalFactors } from "./baseline";
 import {
   addDays,
@@ -56,6 +56,10 @@ export type ClinicRow = {
   cohort: string;
   /** Its label at the end of the window before (previous month / quarter); undefined for "all" or no history. */
   prevCohort?: string;
+  /** The label as of the data-through date (refresh time), whatever window is open: today's actions (Call-first) use it. */
+  cohortNow?: string;
+  /** Lifecycle shown in this window (label then, for a past window); `life` stays today's status for at-risk. */
+  lifeAt?: string;
   /** up / down / neutral when the label changed since the window before (analytics/clinicLabels.ts moveOf). */
   move?: "up" | "down" | "neutral" | null;
   /** This month's company Top 20% list: last-12-months revenue, rank (1 = largest), list size, smallest revenue on it. */
@@ -283,6 +287,7 @@ type ClinicMetaRow = {
   bdSinceLastOrder?: number;
   p90GapBd?: number;
   life?: string;
+  labelAt?: Record<string, string>;
 };
 
 /**
@@ -398,6 +403,8 @@ export async function clinicHealthMap(
   );
   const out = new Map<string, string[]>();
   if (!ready) return out;
+  // Same window rule as drill(): a past window's Churned / Lost follows the clinic's label then.
+  const at = labelDateOf(periodId, cutoff);
   for (const m of meta) {
     const perf = byClinic.get(m.clinic);
     if (!perf) continue;
@@ -416,7 +423,7 @@ export async function clinicHealthMap(
           touchDataAvailable: m.touchDataAvailable ?? false,
           medianGapBd: m.medianGapBd,
           bdSinceLastOrder: m.bdSinceLastOrder,
-          life: m.life,
+          life: lifeIn(m.labelAt, m.life, at, cutoff),
         },
         perf,
       ),
@@ -487,6 +494,9 @@ export async function drill(
   const wDates = windowDates(args.periodId, days[days.length - 1], cfg.currentEnd);
   const labelIn = (m: { cohort: string; labelAt?: Record<string, string> }) => decodeLabel(m.labelAt?.[wDates.at]) ?? m.cohort;
   const labelBefore = (m: { labelAt?: Record<string, string> }) => (wDates.before ? decodeLabel(m.labelAt?.[wDates.before]) : undefined);
+  // Lifecycle shown in this window: today's status for the current windows, the label then for a past one, so the label,
+  // the Churned / Lost badge and the scorecard's churn count agree (2026-11-20). At-risk and Call-first stay on today's.
+  const lifeHere = (m: { labelAt?: Record<string, string>; life?: string }) => lifeIn(m.labelAt, m.life, wDates.at, cfg.currentEnd);
 
   // Scoped read: a rep's or team lead's own clinics come straight off an
   // index instead of reading the whole table and filtering in memory (which
@@ -678,7 +688,7 @@ export async function drill(
         touchDataAvailable: m.touchDataAvailable ?? false,
         medianGapBd: m.medianGapBd,
         bdSinceLastOrder: m.bdSinceLastOrder,
-        life: m.life,
+        life: lifeHere(m),
       },
       {
         actual,
@@ -749,6 +759,8 @@ export async function drill(
       newGroups: m.newGroups ?? [],
       isNew: m.isNew ?? false,
       life: m.life,
+      lifeAt: lifeHere(m),
+      cohortNow: m.cohort,
       medianGapBd: m.medianGapBd,
       p90GapBd: m.p90GapBd,
       bdSinceLastOrder: m.bdSinceLastOrder,

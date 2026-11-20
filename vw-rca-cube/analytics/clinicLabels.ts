@@ -166,6 +166,64 @@ export function windowDates(periodId: string, periodEnd: string, currentEnd: str
   return { at, before: addDays(`${monthOf(periodEnd)}-01`, -1) };
 }
 
+/**
+ * Month-ends inside the analysis window, before its end: the label dates that past windows (an earlier month, quarter,
+ * week or day) read. The current windows read the window's end, which the refresh's own cohort rows already cover.
+ */
+export function pastLabelDates(currentStart: string, currentEnd: string): string[] {
+  const out: string[] = [];
+  for (let d = monthEnd(currentStart); d < currentEnd; d = monthEnd(addDays(d, 1))) out.push(d);
+  return out;
+}
+
+/**
+ * The days a label date's windows cover, so cohort actuals can be grouped by that label: its month, from six days
+ * before (a week ending in the month starts up to six days earlier), and the whole quarter when it is a quarter end.
+ */
+export function labelDateSpan(labelDate: string): { start: string; end: string } {
+  const monthStart = addDays(`${monthOf(labelDate)}-01`, -6);
+  const qs = quarterStart(labelDate);
+  const isQuarterEnd = quarterEnd(labelDate) === labelDate;
+  return { start: isQuarterEnd && qs < monthStart ? qs : monthStart, end: labelDate };
+}
+
+/** A clinic's label at a date, falling back (no code: first order later, or an older snapshot) to its refresh-time cohort. */
+export const labelAtOr = (labelAt: Record<string, string> | undefined, date: string, fallback: string): string =>
+  decodeLabel(labelAt?.[date]) ?? fallback;
+
+/**
+ * The lifecycle stage implied by a label, for a past window: the Churned badge and the scorecard's churn count then agree
+ * with the label shown. Active covers new, top 20% and the rest.
+ */
+export const lifeOfLabel = (l: Label): "churned" | "reactivated" | "active" =>
+  l === "churned" ? "churned" : l === "reactivated" ? "reactivated" : "active";
+
+/**
+ * The lifecycle stage to show in a window: the clinic's current status for the current windows, its label then for a past
+ * window (so label, Churned badge and churn count agree). Falls back to the current status when no label is stored.
+ */
+export function lifeIn(labelAt: Record<string, string> | undefined, life: string | undefined, at: string, currentEnd: string): string | undefined {
+  if (at === currentEnd) return life;
+  const l = decodeLabel(labelAt?.[at]);
+  return l ? lifeOfLabel(l) : life;
+}
+
+/** The label date of a window from its id alone (callers without the window's days): see windowDates. */
+export function labelDateOf(periodId: string, currentEnd: string): string {
+  const [kind, key] = periodId.split(":");
+  if (periodId === "all" || !key) return currentEnd;
+  if (kind === "q") {
+    const [y, q] = key.split("-Q").map(Number);
+    return windowDates(periodId, `${y}-${String((q - 1) * 3 + 1).padStart(2, "0")}-01`, currentEnd).at;
+  }
+  if (kind === "m") return windowDates(periodId, `${key}-01`, currentEnd).at;
+  if (kind === "w") {
+    const end = addDays(key, 6);
+    return windowDates(periodId, end < currentEnd ? end : currentEnd, currentEnd).at;
+  }
+  return windowDates(periodId, key, currentEnd).at;
+}
+
 /** Direction of a label change. Null when either side is missing or nothing changed. */
 export function moveOf(before: Label | undefined, now: Label | undefined): Move | null {
   if (!before || !now || before === now) return null;

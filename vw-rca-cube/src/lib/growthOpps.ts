@@ -245,7 +245,7 @@ export function discover(inp: Inputs): OppDef[] {
       indicator: "At-risk customers", indicatorValue: `${b.opp.atRisk.n.toLocaleString("en-US")} clinics · ${money(short)} a year below baseline`, metric: "Revenue Retention", from: "",
       clinicIds: b.opp.atRisk.ids, n: b.opp.atRisk.n, cur: 0, tgt: 35, rateLabel: "share of the shortfall below baseline recovered", value: short / b.opp.atRisk.n,
       observation: `${b.opp.atRisk.n.toLocaleString("en-US")} existing clinics are running late against their own order rhythm, are at least 10% below baseline. They run ${money(short)} a year below their baseline.`,
-      intervention: "A weekly call list ranked by dollars below baseline, worked by the clinic owner before the 45-day churn line.",
+      intervention: "A weekly call list ranked by dollars below baseline, worked by the clinic owner before the clinic's own churn line (45 days, or 3× its usual gap for a slow buyer).",
       evidence: "The scorecard's At-risk customers indicator, annualized from the analysis window. A clinic is at risk only when it is late against its own order rhythm; one on its usual cadence, above baseline, or merely not called is not.", ready: "ready", defaultOwner: "Sales", annual: short,
     });
   }
@@ -256,10 +256,10 @@ export function discover(inp: Inputs): OppDef[] {
     const cur = back + b.kpi.churned > 0 ? (back / (back + b.kpi.churned)) * 100 : 0;
     if (rs.length && base > 0) {
       out.push({
-        id: "reactivate", name: "Reactivate churned clinics", pillar: "New Business", source: "scorecard", segment: "Churned: 45+ days since the last order, with a baseline",
+        id: "reactivate", name: "Reactivate churned clinics", pillar: "New Business", source: "scorecard", segment: "Churned: past the clinic's own churn line (45 days, or 3× its usual gap)",
         indicator: "New Revenue · reactivated clinics", indicatorValue: `${rs.length.toLocaleString("en-US")} clinics · ${money(base)} baseline a year`, metric: "New Revenue", from: "",
         clinicIds: rs.map(r => r.clinic), n: rs.length, cur: Math.round(cur * 10) / 10, tgt: Math.round(cur * 10) / 10 + 10, rateLabel: "share of churned clinics back ordering", value: base / rs.length,
-        observation: `${rs.length.toLocaleString("en-US")} clinics have gone 45+ days without an order. They averaged ${money(base / rs.length)} a year at baseline. ${Math.round(cur)}% of the clinics that churned have come back so far.`,
+        observation: `${rs.length.toLocaleString("en-US")} clinics are past their own churn line (45+ days without an order, longer for slow buyers). They averaged ${money(base / rs.length)} a year at baseline. ${Math.round(cur)}% of the clinics that churned have come back so far.`,
         intervention: "A call list ranked by baseline revenue, with a reactivation offer for clinics gone under 120 days.",
         evidence: "Lifecycle stages: the scorecard counts reactivated revenue inside New Revenue.", ready: "ready", defaultOwner: "Sales", annual: base,
       });

@@ -10,7 +10,8 @@ export function inCallFirstWindow(daysSinceLast: number | null, churned: boolean
 
 /**
  * The extra chip on the Call-first list: the clinics on the At-risk card (analytics/atRisk.ts) that are in the scorecard's "Active, top 20%"
- * group (`retained_top20`: the top fifth of all active clinics, company-wide, by baseline; set in refresh.ts), whatever health flags they carry.
+ * group as of today (`retained_top20`: active, established clinics on the company's last-12-months Top 20% list, analytics/clinicLabels.ts;
+ * the caller passes the label at the data-through date, not a past tab's), whatever health flags they carry.
  * Slow, small buyers would not move revenue, so the chip is a short, valuable call list; the At-risk card itself still counts every at-risk
  * clinic. It uses the scorecard's own group so the tag on a clinic, the card and the chip agree (a rep's own top 20% is a different bar).
  */

@@ -2,7 +2,8 @@
 // window's end, which dates a window compares, and the direction of a move. No Cube, no Convex.
 //   node --import tsx scripts/clinic-labels.test.ts
 import assert from "node:assert/strict";
-import { decodeLabel, encodeLabel, labelDates, labelOf, labelsFor, moveOf, onListOf, revenueMonthsFor, standingIn, tierLists, windowDates } from "../analytics/clinicLabels";
+import { decodeLabel, encodeLabel, labelAtOr, labelDateOf, labelDates, labelDateSpan, labelOf, labelsFor, lifeIn, moveOf, onListOf, pastLabelDates, revenueMonthsFor, standingIn, tierLists, windowDates } from "../analytics/clinicLabels";
+import { topCohortAtRisk } from "../analytics/callFirst";
 
 let n = 0;
 const test = (name: string, fn: () => void) => {
@@ -133,6 +134,53 @@ test("moves: up, down, neutral", () => {
   assert.equal(moveOf("reactivated", "retained_top20"), "neutral");
   assert.equal(moveOf("retained_rest", "retained_rest"), null);
   assert.equal(moveOf(undefined, "new"), null);
+});
+
+test("past windows: month-ends before the data end, and the days each one covers", () => {
+  assert.deepEqual(pastLabelDates("2026-05-01", "2026-11-19"), ["2026-05-31", "2026-06-30", "2026-07-31", "2026-08-31", "2026-09-30", "2026-10-31"]);
+  assert.deepEqual(pastLabelDates("2026-05-01", "2026-05-31"), []);
+  assert.deepEqual(labelDateSpan("2026-10-31"), { start: "2026-09-25", end: "2026-10-31" }); // month, from 6 days before
+  assert.deepEqual(labelDateSpan("2026-09-30"), { start: "2026-07-01", end: "2026-09-30" }); // quarter end: the whole quarter
+  // Every past window's label date is one of them, and its days fall in that date's span.
+  const end = "2026-11-19";
+  for (const [id, last] of [["m:2026-10", "2026-10-31"], ["q:2026-Q3", "2026-09-30"], ["w:2026-10-27", "2026-11-02"], ["w:2026-09-29", "2026-10-05"], ["d:2026-10-01", "2026-10-01"]]) {
+    const at = windowDates(id, last, end).at;
+    assert.equal(labelDateOf(id, end), at, id);
+    if (at !== end) assert.ok(pastLabelDates("2026-05-01", end).includes(at), id);
+  }
+  assert.equal(labelDateOf("w:2026-11-16", end), end); // this week: current
+  assert.equal(labelDateOf("all", end), end);
+});
+
+test("tree = list: regrouping clinics by the label at a past date gives the same sums as the per-clinic rows", () => {
+  const clinics = [
+    { id: "1", labelAt: { "2026-10-31": "T" }, cohort: "churned", rev: 100 },
+    { id: "2", labelAt: { "2026-10-31": "r" }, cohort: "retained_rest", rev: 40 },
+    { id: "3", labelAt: { "2026-10-31": "C" }, cohort: "retained_top20", rev: 0 },
+    { id: "4", labelAt: {}, cohort: "new", rev: 25 }, // first order after Oct 31: falls back, as the list does
+  ];
+  const tree = new Map<string, number>();
+  for (const c of clinics) {
+    const k = labelAtOr(c.labelAt, "2026-10-31", c.cohort);
+    tree.set(k, (tree.get(k) ?? 0) + c.rev);
+  }
+  assert.deepEqual(Object.fromEntries(tree), { retained_top20: 100, retained_rest: 40, churned: 0, new: 25 });
+});
+
+test("lifecycle per window: today's status now, the label then for a past window", () => {
+  const labelAt = { "2026-10-31": "C", "2026-11-19": "T" };
+  assert.equal(lifeIn(labelAt, "active", "2026-11-19", "2026-11-19"), "active");
+  assert.equal(lifeIn(labelAt, "active", "2026-10-31", "2026-11-19"), "churned");
+  assert.equal(lifeIn({ "2026-10-31": "a" }, "churned", "2026-10-31", "2026-11-19"), "reactivated");
+  assert.equal(lifeIn({ "2026-10-31": "n" }, "churned", "2026-10-31", "2026-11-19"), "active");
+  assert.equal(lifeIn(undefined, "churned", "2026-10-31", "2026-11-19"), "churned"); // older snapshot
+});
+
+test("Call-first chip: today's Top 20% label, not a past tab's", () => {
+  const atRisk = new Set(["1", "2"]);
+  // On a past tab clinic 1 read Active - rest then but is on today's list; clinic 2 the other way round.
+  const rows = [{ clinic: "1", cohort: "retained_rest", cohortNow: "retained_top20" }, { clinic: "2", cohort: "retained_top20", cohortNow: "retained_rest" }];
+  assert.deepEqual([...topCohortAtRisk(rows.map(r => ({ clinic: r.clinic, cohort: r.cohortNow ?? r.cohort })), atRisk)], ["1"]);
 });
 
 console.log(`${n} checks passed`);

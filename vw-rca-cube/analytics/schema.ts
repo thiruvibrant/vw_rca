@@ -36,6 +36,8 @@ const schema = defineSchema({
     date: v.string(),
     cohort: v.string(), // churned | new | retained_top20 | retained_rest | reactivated
     revenue: v.number(),
+    // Set on rows for a past window: the month-end whose labels group the clinics (clinicLabels.ts). Absent = current windows.
+    labelDate: v.optional(v.string()),
     // Refresh generation; readers only see rows from the current one.
     gen: v.optional(v.number()),
   })
@@ -47,6 +49,8 @@ const schema = defineSchema({
     cohort: v.string(),
     rates: v.array(v.number()), // expected revenue per calendar day, by weekday 0=Sun
     clinics: v.number(),
+    // As on cohortDaily: the label date for a past window; absent = current windows.
+    labelDate: v.optional(v.string()),
     // Refresh generation; readers only see rows from the current one.
     gen: v.optional(v.number()),
   })

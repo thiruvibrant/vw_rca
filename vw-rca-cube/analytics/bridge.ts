@@ -2,6 +2,7 @@ import { mainSettings, newGoalOf, targetScaleOf } from "./baseline";
 import { geoKeyOf } from "./geoKey";
 import { loadCfg } from "./config";
 import { calibrate } from "./lifecycle";
+import { windowDates } from "./clinicLabels";
 import { internalQuery, type QueryCtx } from "./_generated/server";
 import {
   BASELINE_LABEL,
@@ -137,14 +138,29 @@ async function computeBridge(ctx: QueryCtx) {
   // overall → state allocation as the tree/rep views.
   const rawGeoMap: Record<string, string> = {};
   const geoAllocBy = new Map<string, Array<{ geo: string; expectedRevenue: number; actualRevenue: number }>>();
-  const cohortDaily = await ctx.db
+  const cohortDailyAll = await ctx.db
     .query("cohortDaily")
     .withIndex("by_gen", q => q.eq("gen", gen))
     .collect();
-  const cohortBaseline = await ctx.db
+  const cohortBaselineAll = await ctx.db
     .query("cohortBaseline")
     .withIndex("by_gen", q => q.eq("gen", gen))
     .collect();
+  // Untagged rows group clinics by their label at the data-through date (the current windows); rows tagged with a past
+  // month-end group them by their label then, used for a past window so the tree matches the clinic list it opens.
+  const cohortDaily = cohortDailyAll.filter(r => !r.labelDate);
+  const cohortBaseline = cohortBaselineAll.filter(r => !r.labelDate);
+  const pastCohortBase = new Map<string, typeof cohortBaseline>();
+  for (const r of cohortBaselineAll) if (r.labelDate) pastCohortBase.set(r.labelDate, [...(pastCohortBase.get(r.labelDate) ?? []), r]);
+  const pastCohortActual = new Map<string, Map<string, Map<string, number>>>(); // labelDate -> date -> cohort -> revenue
+  for (const r of cohortDailyAll) {
+    if (!r.labelDate) continue;
+    const byDate = pastCohortActual.get(r.labelDate) ?? new Map<string, Map<string, number>>();
+    const m = byDate.get(r.date) ?? new Map<string, number>();
+    m.set(r.cohort, (m.get(r.cohort) ?? 0) + r.revenue);
+    byDate.set(r.date, m);
+    pastCohortActual.set(r.labelDate, byDate);
+  }
 
   // Mid-refresh the tables are cleared one by one; without every supporting
   // table the lenses would come back empty and the UI would read row[0] of an
@@ -244,6 +260,7 @@ async function computeBridge(ctx: QueryCtx) {
   }
 
   const currentDays = eachDay(cfg.currentStart, cfg.currentEnd);
+  const dataEnd = cfg.currentEnd;
 
   // Rolling revenue/orders baselines, same formula as Power BI Revenue
   // Intelligence's "Today's / WTD / MTD Revenue Baseline" DAX measures:
@@ -380,11 +397,15 @@ async function computeBridge(ctx: QueryCtx) {
       (nbOrders - expNb) * baseAov.nonBundle +
       nbOrders * ((nbOrders ? nbRevenue / nbOrders : 0) - baseAov.nonBundle);
 
-    // Lens C — clinic cohorts
+    // Lens C — clinic cohorts. A past window (its label date is not the data-through date) groups by the labels then.
+    const labelDate = windowDates(id, days[days.length - 1], dataEnd).at;
+    const past = labelDate !== dataEnd && pastCohortBase.has(labelDate);
+    const cohortRows = past ? pastCohortBase.get(labelDate)! : cohortBaseline;
+    const actualOn = past ? pastCohortActual.get(labelDate) ?? new Map<string, Map<string, number>>() : cohortActual;
     const cohortBase = new Map<string, number>();
-    const cohortAgg = cohortBaseline.map(cb => {
+    const cohortAgg = cohortRows.map(cb => {
       let actual = 0;
-      for (const d of days) actual += cohortActual.get(d)?.get(cb.cohort) ?? 0;
+      for (const d of days) actual += actualOn.get(d)?.get(cb.cohort) ?? 0;
       let exp = 0;
       let base = 0;
       for (const d of days) {

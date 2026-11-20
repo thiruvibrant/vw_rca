@@ -35,7 +35,7 @@ import { baselineDays, bestWindow, dayWeight, goalWeights, lookbackOf } from "./
 import { newClinicFunnelGroups } from "./newClinicFunnel";
 import { eq, O, ordersRows, rows as cubeRows } from "./cube";
 import { dateOf, familyOf, num, splitFamilies, TABLE } from "./powerbi";
-import { labelDates, labelOf, labelsFor, listMonthOf, revenueMonthsFor, tierLists, type TierList } from "./clinicLabels";
+import { labelAtOr, labelDates, labelDateSpan, labelOf, labelsFor, listMonthOf, pastLabelDates, revenueMonthsFor, tierLists, type TierList } from "./clinicLabels";
 
 /** Revenue by month ("YYYY-MM") and clinic for the monthly Top 20% lists in force on `days` (analytics/clinicLabels.ts). */
 async function tierListsFor(days: string[]): Promise<Map<string, TierList>> {
@@ -59,7 +59,7 @@ async function tierListsFor(days: string[]): Promise<Map<string, TierList>> {
 }
 
 // Lifecycle stages (Shyam, 2026-10-16): new = first order in the window; retained_* = ordered in the baseline AND the
-// window (top 20% by baseline $ is a value tier of "active"); churned = ordered in the baseline, nothing in the window;
+// window (top 20% = on the company's last-12-months list, clinicLabels.ts, a value tier of "active"); churned = ordered in the baseline, nothing in the window;
 // reactivated = first order before the window, nothing in the baseline, ordering again now (baseline is zero).
 const COHORTS = ["churned", "new", "retained_top20", "retained_rest", "reactivated"] as const;
 type Cohort = (typeof COHORTS)[number];
@@ -776,7 +776,7 @@ export const refreshData = internalAction({
         for (let i = 0; i < 7; i++) a.totals[i] += base.rev[i];
       }
       for (const [, c] of cohortOf) agg.get(c)!.clinics += 1;
-      const cohortBaseline = COHORTS.map(c => ({
+      const cohortBaseline: Array<{ cohort: string; rates: number[]; clinics: number; labelDate?: string }> = COHORTS.map(c => ({
         cohort: c,
         rates: ratesFrom(agg.get(c)!.totals, baseCounts, bucket),
         clinics: agg.get(c)!.clinics,
@@ -790,10 +790,43 @@ export const refreshData = internalAction({
         const key = `${row.date}|${c}`;
         cohortDayMap.set(key, (cohortDayMap.get(key) ?? 0) + row.revenue);
       }
-      const cohortDaily = [...cohortDayMap].map(([key, revenue]) => {
+      const cohortDaily: Array<{ date: string; cohort: string; revenue: number; labelDate?: string }> = [...cohortDayMap].map(([key, revenue]) => {
         const [date, cohort] = key.split("|");
         return { date, cohort, revenue };
       });
+      // Past windows group clinics by their label then (clinicLabels.ts), as the clinic list behind a branch does, so the
+      // tree and its list agree on Last month / Last quarter. One set of rows per past month-end, tagged with labelDate;
+      // the untagged rows above stay the current windows' (2026-11-20).
+      for (const ld of pastLabelDates(currentStart, currentEnd)) {
+        const at = (id: string) => labelAtOr(labelAtOf.get(id), ld, cohortOf.get(id) ?? "") as Cohort | "";
+        const aggAt = new Map<Cohort, { totals: number[]; clinics: number }>();
+        for (const c of COHORTS) aggAt.set(c, { totals: zero(), clinics: 0 });
+        for (const [id, base] of baseByClinic) {
+          const c = at(id);
+          if (!c) continue;
+          const a = aggAt.get(c)!;
+          for (let i = 0; i < 7; i++) a.totals[i] += base.rev[i];
+        }
+        for (const id of cohortOf.keys()) {
+          const c = at(id);
+          if (c) aggAt.get(c)!.clinics += 1;
+        }
+        for (const c of COHORTS)
+          cohortBaseline.push({ cohort: c, rates: ratesFrom(aggAt.get(c)!.totals, baseCounts, bucket), clinics: aggAt.get(c)!.clinics, labelDate: ld });
+        const span = labelDateSpan(ld);
+        const dayAt = new Map<string, number>();
+        for (const row of clinicDays) {
+          if (row.date < span.start || row.date > span.end) continue;
+          const c = at(row.clinic);
+          if (!c) continue;
+          const key = `${row.date}|${c}`;
+          dayAt.set(key, (dayAt.get(key) ?? 0) + row.revenue);
+        }
+        for (const [key, revenue] of dayAt) {
+          const [date, cohort] = key.split("|");
+          cohortDaily.push({ date, cohort, revenue, labelDate: ld });
+        }
+      }
 
       await ctx.runMutation(internal.ingest.progressLog, {
         id: logId,
@@ -2842,7 +2875,7 @@ export const refreshSnapshot = internalAction({
         for (let i = 0; i < 7; i++) a.totals[i] += base.rev[i];
       }
       for (const [, c] of cohortOf) agg.get(c)!.clinics += 1;
-      const cohortBaseline = COHORTS.map(c => ({
+      const cohortBaseline: Array<{ cohort: string; rates: number[]; clinics: number; labelDate?: string }> = COHORTS.map(c => ({
         cohort: c,
         rates: ratesFrom(agg.get(c)!.totals, baseCounts, bucket),
         clinics: agg.get(c)!.clinics,
@@ -2856,10 +2889,43 @@ export const refreshSnapshot = internalAction({
         const key = `${row.date}|${c}`;
         cohortDayMap.set(key, (cohortDayMap.get(key) ?? 0) + row.revenue);
       }
-      const cohortDaily = [...cohortDayMap].map(([key, revenue]) => {
+      const cohortDaily: Array<{ date: string; cohort: string; revenue: number; labelDate?: string }> = [...cohortDayMap].map(([key, revenue]) => {
         const [date, cohort] = key.split("|");
         return { date, cohort, revenue };
       });
+      // Past windows group clinics by their label then (clinicLabels.ts), as the clinic list behind a branch does, so the
+      // tree and its list agree on Last month / Last quarter. One set of rows per past month-end, tagged with labelDate;
+      // the untagged rows above stay the current windows' (2026-11-20).
+      for (const ld of pastLabelDates(currentStart, currentEnd)) {
+        const at = (id: string) => labelAtOr(labelAtOf.get(id), ld, cohortOf.get(id) ?? "") as Cohort | "";
+        const aggAt = new Map<Cohort, { totals: number[]; clinics: number }>();
+        for (const c of COHORTS) aggAt.set(c, { totals: zero(), clinics: 0 });
+        for (const [id, base] of baseByClinic) {
+          const c = at(id);
+          if (!c) continue;
+          const a = aggAt.get(c)!;
+          for (let i = 0; i < 7; i++) a.totals[i] += base.rev[i];
+        }
+        for (const id of cohortOf.keys()) {
+          const c = at(id);
+          if (c) aggAt.get(c)!.clinics += 1;
+        }
+        for (const c of COHORTS)
+          cohortBaseline.push({ cohort: c, rates: ratesFrom(aggAt.get(c)!.totals, baseCounts, bucket), clinics: aggAt.get(c)!.clinics, labelDate: ld });
+        const span = labelDateSpan(ld);
+        const dayAt = new Map<string, number>();
+        for (const row of clinicDays) {
+          if (row.date < span.start || row.date > span.end) continue;
+          const c = at(row.clinic);
+          if (!c) continue;
+          const key = `${row.date}|${c}`;
+          dayAt.set(key, (dayAt.get(key) ?? 0) + row.revenue);
+        }
+        for (const [key, revenue] of dayAt) {
+          const [date, cohort] = key.split("|");
+          cohortDaily.push({ date, cohort, revenue, labelDate: ld });
+        }
+      }
 
       // 4c. Product families (level 2 under volume / product mix).
       // product_family lives on the line-level test table but resolves to one

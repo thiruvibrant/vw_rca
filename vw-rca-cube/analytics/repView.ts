@@ -158,9 +158,12 @@ export const book = scopedQuery({
       r => !r.isNew && (r.baselineWeekly ?? r.baseline) <= 0 && (r.cohort === "reactivated" || r.cohort === "churned"),
     );
     // Churn is by last order date and the clinic's own gap threshold (analytics/lifecycleRules.ts): 45 days for new
-    // clinics, max(45, 3 x its typical gap) for established ones. Status is as of the latest data, the same on every tab.
+    // clinics, max(45, 3 x its typical gap) for established ones. On the current tabs it is the latest status; on a past
+    // tab (an earlier month or quarter) it is the clinic's label then, the same as its Cohort column and Churned badge
+    // (2026-11-20). At-risk and the Call-first list stay on today's status: they are calls to make now.
+    const lifeOf = (r: ClinicRow) => r.lifeAt ?? r.life;
     const isChurned = (r: ClinicRow) => {
-      if (r.life) return r.life === "churned";
+      if (lifeOf(r)) return lifeOf(r) === "churned";
       const s = since(cutoff, r.lastOrderAllTime);
       return s === null || s >= CHURN_DAYS;
     };
@@ -267,8 +270,8 @@ export const book = scopedQuery({
     // no-baseline clinics, so New + Existing still adds up to Combined.
     const splitOf = (rs: ClinicRow[]) => ({ n: rs.length, ordering: rs.filter(r => r.orders > 0).length, rev: sum(rs, r => r.actual) });
     const newSplit = {
-      active: splitOf(newRows.filter(r => !isChurned(r) && r.life !== "reactivated")),
-      reactivated: splitOf(newRows.filter(r => !isChurned(r) && r.life === "reactivated")),
+      active: splitOf(newRows.filter(r => !isChurned(r) && lifeOf(r) !== "reactivated")),
+      reactivated: splitOf(newRows.filter(r => !isChurned(r) && lifeOf(r) === "reactivated")),
       churned: splitOf(newRows.filter(isChurned)),
       returning: splitOf(reactivated),
     };
@@ -381,7 +384,7 @@ export const book = scopedQuery({
     // filter narrows to one tag for a targeted call list.
     // The At risk chip comes first: the clinics on the At-risk card that are in the scorecard's Active top 20% group (company-wide, the tag
     // shown on each clinic). Slow, small buyers stay on the card but not on this call list.
-    const atRiskSet = topCohortAtRisk(existing, new Set(atRiskRows.map(r => r.clinic)));
+    const atRiskSet = topCohortAtRisk(existing.map(r => ({ clinic: r.clinic, cohort: r.cohortNow ?? r.cohort })), new Set(atRiskRows.map(r => r.clinic)));
     const healthTags = [AT_RISK_TAG, ...new Set(existing.flatMap(r => r.health))].sort((a, b) => (a === AT_RISK_TAG ? -1 : b === AT_RISK_TAG ? 1 : a.localeCompare(b)));
     const pstatusTags = [...new Set(existing.flatMap(r => r.pstatus))].sort();
     const callFirstPool = existing

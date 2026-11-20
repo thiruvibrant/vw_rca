@@ -23,6 +23,7 @@ import { RaiseQuestionDialog } from "./RaiseQuestion";
 import { MetricMap } from "./MetricMap";
 import { geoKeyOf } from "../../analytics/geoKey";
 import { AREAS } from "../../analytics/fzRules";
+import { labelDateOf } from "../../analytics/clinicLabels";
 import { findFzFamily, fzCrossSell, fzListSel, fzWhitespace, isFzFamily } from "@/lib/fzAgenda";
 import { QuietBoundary } from "@/components/QuietBoundary";
 import { ANNOUNCEMENTS, FZ_ANNOUNCEMENT_ID, announcementsFor, hasUnseenAnnouncement, latestAnnouncementId } from "@/lib/announcements";
@@ -3015,12 +3016,21 @@ function Standing({ d, periodId }: { d: Book; periodId: string }) {
   const label = COHORT[d.cohort] ?? d.cohort;
   const gap = typeof d.typicalGap === "number" && d.typicalGap > 0 ? Math.round(d.typicalGap) : null;
   const limit = d.isNew || gap === null ? 45 : Math.max(45, 3 * gap);
-  const since = d.daysSinceLast as number | null;
+  // A past window (Last month, Last quarter, …) shows the label as of its end: the reason is given as of that date, not with
+  // today's days since the last order, and the Top 20% rank below is today's list (2026-11-20).
+  const at = typeof d.cutoff === "string" && d.cutoff ? labelDateOf(periodId, d.cutoff) : null;
+  const pastAt = at && at !== d.cutoff ? at : null;
+  const since = pastAt ? null : (d.daysSinceLast as number | null);
+  const asOf = pastAt ? `As of ${fmtD(pastAt)}: ` : "";
   const life =
-    d.cohort === "churned"
-      ? `No order for ${since ?? "?"} days; a clinic is churned after ${limit} days${gap ? ` (3× its usual ${gap}-day gap, at least 45)` : ""}.`
+    pastAt && (d.cohort === "retained_top20" || d.cohort === "retained_rest")
+      ? `${asOf}ordering within its usual rhythm.`
+      : d.cohort === "churned"
+      ? since === null
+        ? `${asOf}no order within its churn line of ${limit} days${gap ? ` (3× its usual ${gap}-day gap, at least 45)` : ""}.`
+        : `No order for ${since} days; a clinic is churned after ${limit} days${gap ? ` (3× its usual ${gap}-day gap, at least 45)` : ""}.`
       : d.cohort === "reactivated"
-        ? `Ordering again after a gap of ${limit}+ days; stays Reactivated for 90 days after the return.`
+        ? `${asOf}ordering again after a gap of ${limit}+ days; stays Reactivated for 90 days after the return.`
         : d.cohort === "new"
           ? `First order ${fmtD(d.firstOrder) || "this year"}.`
           : gap && since !== null
@@ -3033,8 +3043,8 @@ function Standing({ d, periodId }: { d: Book; periodId: string }) {
   const tier =
     t12 !== null && d.tierLine
       ? onList
-        ? `On the Top 20% list: rank ${d.tierRank.toLocaleString("en-US")} of ${d.tierCount.toLocaleString("en-US")} · ${K(t12)} in the last 12 months · ${K(t12 - d.tierLine)} above the cut-off (${K(d.tierLine)})`
-        : `Not on the Top 20% list${d.tierRank ? `: rank ${d.tierRank.toLocaleString("en-US")} of ${d.tierCount.toLocaleString("en-US")}` : ""} · ${K(t12)} in the last 12 months · ${K(d.tierLine - t12)} short of the cut-off (${K(d.tierLine)})`
+        ? `${pastAt ? "Today: o" : "O"}n the Top 20% list: rank ${d.tierRank.toLocaleString("en-US")} of ${d.tierCount.toLocaleString("en-US")} · ${K(t12)} in the last 12 months · ${K(t12 - d.tierLine)} above the cut-off (${K(d.tierLine)})`
+        : `${pastAt ? "Today: n" : "N"}ot on the Top 20% list${d.tierRank ? `: rank ${d.tierRank.toLocaleString("en-US")} of ${d.tierCount.toLocaleString("en-US")}` : ""} · ${K(t12)} in the last 12 months · ${K(d.tierLine - t12)} short of the cut-off (${K(d.tierLine)})`
       : null;
   const word = sinceWord(periodId);
   const hist: Array<{ date: string; cohort: string }> = d.labelHistory ?? [];
@@ -3049,7 +3059,7 @@ function Standing({ d, periodId }: { d: Book; periodId: string }) {
         <div className="rv-standing-move">Was {COHORT[d.prevCohort] ?? d.prevCohort} {word ?? ""}</div>
       ) : null}
       <ul className="rv-standing-facts">
-        {life ? <li>{life}</li> : null}
+        {life ? <li>{life.charAt(0).toUpperCase() + life.slice(1)}</li> : null}
         {tier ? <li>{tier}</li> : null}
         <li>
           {typeof d.lifetimeRevenue === "number" ? `Lifetime revenue ${K(d.lifetimeRevenue)}` : null}
