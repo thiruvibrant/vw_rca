@@ -6,7 +6,7 @@
  */
 import { v } from "convex/values";
 import { isBannerAdmin } from "./banners";
-import { gatedMutation, gatedQuery } from "./gated";
+import { gatedMutation, gatedQuery, scopedQuery } from "./gated";
 
 const OPP = "growth-opp:";
 const WEIGHTS = "growth-weights";
@@ -49,6 +49,31 @@ export const state = gatedQuery({
       }
     }
     return { canEdit: ctx.viewer.kind === "team" && isBannerAdmin(ctx.viewer.email), opps, weights };
+  },
+});
+
+/** Statuses that put an opportunity into reps' week plans: the team decided to work it. */
+const IN_PLANS = ["Committed", "Executing", "Scaling"];
+
+/**
+ * The committed opportunities, for a rep's week plan (2026-11-20): id, status and target rate only, never notes, owners or who saved them.
+ * Open to rep logins; the opportunities are company decisions, and the clinics each rep sees are cut to the rep's own on the engine.
+ */
+export const committed = scopedQuery({
+  args: {},
+  handler: async ctx => {
+    const rows = await ctx.db.query("appMeta").collect();
+    const opps: Record<string, { status: string; tgt?: number }> = {};
+    for (const r of rows) {
+      if (!r.key.startsWith(OPP)) continue;
+      try {
+        const s = JSON.parse(r.value) as Saved;
+        if (s.status && IN_PLANS.includes(s.status)) opps[r.key.slice(OPP.length)] = { status: s.status, tgt: s.tgt };
+      } catch {
+        /* a row that does not parse is ignored */
+      }
+    }
+    return opps;
   },
 });
 

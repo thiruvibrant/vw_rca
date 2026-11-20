@@ -347,10 +347,20 @@ async function pull(): Promise<GutData> {
   };
 }
 
+export type GutListsResult = { ready: true; asOf: string; lists: GutLists; names: Record<string, { name: string; state: string; sales: string }> };
+
 export const gutLists = gatedAction({
   args: {},
-  handler: async (ctx): Promise<{ ready: true; asOf: string; lists: GutLists; names: Record<string, { name: string; state: string; sales: string }> }> => {
-    const key = `${viewerCfgKey(ctx) ?? ""}gutl2|${new Date().toISOString().slice(0, 10)}`;
+  handler: async (ctx): Promise<GutListsResult> => gutListsData(ctx, viewerCfgKey(ctx) ?? ""),
+});
+
+/**
+ * The lists, cached for the day under `prefix` (a viewer's window key; "" = the shared company copy). The lists use fixed months, not the
+ * viewer's window, so a rep's week plan reads the shared copy (growth.ts repInputs) instead of pulling Cube again per rep.
+ */
+export async function gutListsData(ctx: any, prefix: string): Promise<GutListsResult> {
+  {
+    const key = `${prefix}gutl2|${new Date().toISOString().slice(0, 10)}`;
     const hit: string | null = await ctx.runQuery(internal.ingest.getCache, { key });
     if (hit) return JSON.parse(hit);
     const lists = buildLists(await pull());
@@ -361,5 +371,5 @@ export const gutLists = gatedAction({
     const result = { ready: true as const, asOf: W.checkEnd, lists, names };
     await ctx.runMutation(internal.ingest.putCache, { key, payload: JSON.stringify(result) });
     return result;
-  },
-});
+  }
+}

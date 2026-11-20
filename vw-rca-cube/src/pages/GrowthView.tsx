@@ -7,6 +7,7 @@ import {
   type ClinicLite, type FzLite, type GutLite, type LapsedLite, type ProviderLite, type SwitchLite, type WhitespaceLite, type Opp, type Pillar, type Saved, type Status, type Weights,
 } from "@/lib/growthOpps";
 import { geoKeyOf } from "../../analytics/geoKey";
+import { IN_PLANS } from "@/lib/planLink";
 import { pw } from "./gatePw";
 import { type ExecPeriod, TILES } from "./ExecutiveView";
 import { FocusTable, usePG } from "./RepView";
@@ -413,7 +414,7 @@ export function GrowthView({ periods, teamLead }: { periods: ExecPeriod[]; teamL
           <div className="r"><div className="mono b">{money(inRegion !== null ? inRegion : o.incr)}</div><small>{inRegion !== null ? `in ${regionSel.slice(regionSel.indexOf(":") + 1)}, of ${money(o.incr)}` : ""}</small></div>
           <div className="r mono">{o.effort ? `${int(o.effort)} days` : "—"}</div>
           <div className="r mono">{o.ret !== null ? `${money(o.ret)}/day` : "—"}</div>
-          <div>{o.status}<div><span className={`gr-pill ${r.rec === "Prioritize" ? "go" : r.rec === "Validate" ? "mid" : "low"}`}>{r.rec}</span></div></div>
+          <div>{o.status}<div><span className={`gr-pill ${r.rec === "Prioritize" ? "go" : r.rec === "Validate" ? "mid" : "low"}`}>{r.rec}</span>{IN_PLANS.includes(o.status) ? <span className="gr-pill go" title="Committed, executing or scaling: each rep sees this opportunity in My week plan, with their own clinics">in reps' week plans</span> : null}</div></div>
           <div className="r mono big">{r.score.toFixed(1)}</div>
         </button>
         {isOpen ? <Worksheet opp={o} canEdit={canEdit} save={save(o.id)} scope={scope} weights={weights} score={r.score} /> : null}

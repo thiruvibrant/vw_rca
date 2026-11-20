@@ -2,10 +2,14 @@
  * Inputs for the Growth page that are not already on the scorecard (company-wide, so team logins only).
  */
 import { internal } from "./_generated/api";
-import { viewerCfgKey } from "./config";
 import { ordersRows } from "./cube";
 import { addDays } from "./dateUtils";
-import { gatedAction, gatedQuery } from "./gated";
+import { gatedAction, gatedQuery, scopedAction, scopedQuery } from "./gated";
+import { gutListsData, type GutLists } from "./gutLists";
+import { loadCfg, viewerCfgKey } from "./config";
+import { isCompanyLead, isTeamScope, teamOf } from "./scope";
+import { internalQuery } from "./_generated/server";
+import { v } from "convex/values";
 import { loadLapsed } from "./gzLapsed";
 import { TABLE } from "./powerbi";
 
@@ -58,9 +62,14 @@ const dayOf = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
 export const providers = gatedAction({
   args: {},
-  handler: async (ctx): Promise<{ ready: true; rows: ProviderClinic[] }> => {
+  handler: async (ctx): Promise<{ ready: true; rows: ProviderClinic[] }> => providersData(ctx, viewerCfgKey(ctx) ?? ""),
+});
+
+/** The provider candidates, cached for the day under `prefix` ("" = the shared company copy; see gutListsData). */
+async function providersData(ctx: any, prefix: string): Promise<{ ready: true; rows: ProviderClinic[] }> {
+  {
     const end = dayOf(Date.now());
-    const key = `${viewerCfgKey(ctx) ?? ""}gprov1|${end}`;
+    const key = `${prefix}gprov1|${end}`;
     const hit: string | null = await ctx.runQuery(internal.ingest.getCache, { key });
     if (hit) return JSON.parse(hit);
     const [all, recent] = await Promise.all([
@@ -79,5 +88,59 @@ export const providers = gatedAction({
     };
     await ctx.runMutation(internal.ingest.putCache, { key, payload: JSON.stringify(result) });
     return result;
+  }
+}
+
+/** The clinic ids in a scope (a rep, a team lead's team, or the company), for cutting company-wide lists down to it. */
+export const scopeClinics = internalQuery({
+  args: { sales: v.string() },
+  handler: async (ctx, { sales }): Promise<string[]> => {
+    const cfg = await loadCfg(ctx);
+    const gen = cfg?.gen ?? 0;
+    const meta = isTeamScope(sales) && isCompanyLead(teamOf(sales))
+      ? await ctx.db.query("clinicMeta").withIndex("by_gen", q => q.eq("gen", gen)).collect()
+      : isTeamScope(sales)
+      ? await ctx.db.query("clinicMeta").withIndex("by_gen_lead", q => q.eq("gen", gen).eq("teamLead", teamOf(sales))).collect()
+      : await ctx.db.query("clinicMeta").withIndex("by_gen_sales", q => q.eq("gen", gen).eq("sales", sales)).collect();
+    return meta.map(m => m.clinic);
+  },
+});
+
+/** Lapsed Gut Zoomer clinics in a scope: the rep's own for a rep login (scopedQuery pins `sales`). For the week plan. */
+export const lapsedFor = scopedQuery({
+  args: { sales: v.string() },
+  handler: async (ctx, { sales }) => {
+    const rows = await loadLapsed(ctx, { sales });
+    return {
+      ready: rows.length > 0,
+      rows: rows.map(r => ({ clinic: r.clinic, orders: r.orders, lastOrder: r.lastOrder, otherOrders: r.otherOrders, revenue: r.revenue ?? 0, revenueThis: r.revenueThis ?? 0, gzRevenue: r.gzRevenue })),
+    };
+  },
+});
+
+/**
+ * The Growth page's company-wide lists (Gut Zoomer lists, dormant providers) cut to one scope, for a rep's week plan (2026-11-20). A rep login
+ * only ever gets its own clinics: scopedAction pins `sales` to the rep. Reads the shared daily copy, so a rep never triggers a Cube pull of its own
+ * unless the company copy is not built yet today.
+ */
+export type RepInputs = {
+  gut: { asOf: string; lists: Pick<GutLists, "refGzOrdersYear" | "stopped" | "similar" | "lost" | "noGut"> & Partial<Pick<GutLists, "newPatients" | "followUp">> } | null;
+  providers: ProviderClinic[] | null;
+};
+export const repInputs = scopedAction({
+  args: { sales: v.string() },
+  handler: async (ctx, { sales }): Promise<RepInputs> => {
+    const list: string[] = await ctx.runQuery(internal.growth.scopeClinics, { sales });
+    const ids = new Set<string>(list);
+    const [gut, prov] = await Promise.all([gutListsData(ctx, "").catch(() => null), providersData(ctx, "").catch(() => null)]);
+    const cut = <T extends { clinic: string }>(xs: T[] | undefined): T[] => (xs ?? []).filter(x => ids.has(x.clinic));
+    return {
+      gut: gut ? { asOf: gut.asOf, lists: {
+        refGzOrdersYear: gut.lists.refGzOrdersYear,
+        stopped: cut(gut.lists.stopped), similar: cut(gut.lists.similar), lost: cut(gut.lists.lost), noGut: cut(gut.lists.noGut),
+        newPatients: gut.lists.newPatients ? cut(gut.lists.newPatients) : undefined, followUp: gut.lists.followUp ? cut(gut.lists.followUp) : undefined,
+      } } : null,
+      providers: prov ? cut(prov.rows) : null,
+    };
   },
 });

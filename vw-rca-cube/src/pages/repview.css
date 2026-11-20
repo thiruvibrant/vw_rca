@@ -961,3 +961,13 @@ button.rv-wp-pil.sel{background:#e0e9ff;box-shadow:inset 3px 0 0 #1d4ed8}
 .rv-news-pages { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 .rv-news-page { font-size: 10px; letter-spacing: .06em; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--vw-gray-30, #d1d5db); color: var(--vw-gray-60); background: transparent; }
 .rv-news-page[data-page="overview"] { border-color: var(--brand, #1f4fd8); color: var(--brand, #1f4fd8); }
+
+/* Week plan: "Do these first" and "If you follow this plan" (2026-11-20). */
+.rv-wp-first ol { margin: 6px 0 0; padding-left: 20px; display: grid; gap: 4px; }
+.rv-wp-first li b { font-weight: 600; }
+.rv-wp-imp { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
+.rv-wp-imp th { text-align: left; font-weight: 500; color: #6b7280; padding: 4px 8px 4px 0; border-bottom: 1px solid #e5e7eb; }
+.rv-wp-imp td { padding: 5px 8px 5px 0; border-bottom: 1px solid #f3f4f6; font-variant-numeric: tabular-nums; }
+.rv-wp-imp td.g { color: #15803d; font-weight: 600; }
+.rv-wp-impcells { margin: 10px 0 4px; padding-left: 18px; display: grid; gap: 3px; font-size: 13px; }
+.rv-wp-growth { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 9px; font-size: 11px; font-style: normal; background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; vertical-align: 1px; }

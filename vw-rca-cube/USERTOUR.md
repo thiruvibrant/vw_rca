@@ -114,3 +114,15 @@ Flow "Foundation Zoomer cross-sell list (Overview)" (id `cmwa1c2aa0n6aw9w5psk0xw
 3. The list (a floating card, because the list is taller than the screen and a card anchored to it was cut off) -> the numbers (`fz-kpis`) -> Zoomer filter (`fz-zoomers`) -> plain words (`fz-list-say`) -> FZ open (`list-col-fzOpen`) -> At stake (`list-col-fzStake`).
 4. **Click the first clinic** (`list-first-row`) -> [hidden wait: `fz-breakdown`] -> the breakdown (also a floating card, for the same reason) -> Done.
 Same waiting rule as the rep view's flow: the waits use "unclicked", which only needs the element in the page.
+
+
+## Week plan and Growth (2026-11-20)
+- **Do these first:** the three actions in the plan with the most expected revenue per hour, and why each is first.
+- **If you follow this plan:** each dial's heading now and with the plan, against the goal, plus the count cells the plan moves.
+  - New Business actions count toward New revenue; every other pillar's toward Existing business.
+  - A clinic in several actions counts once.
+  - It is an estimate: every action working as expected.
+- **Growth tag:** opportunities committed on the Growth page (Committed, Executing, Scaling) appear in each rep's plan with the rep's own clinics.
+  - Matching actions are tagged rather than added twice.
+  - On the Growth page those rows show "in reps' week plans".
+- **Storage:** the plan is saved per rep and per week in the browser. Saving to the server with check-offs is a later step.
