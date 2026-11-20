@@ -1036,3 +1036,12 @@ button.rv-wp-pil.sel{background:#e0e9ff;box-shadow:inset 3px 0 0 #1d4ed8}
 .rv-plan-chip { border: 1px solid #bfdbfe; background: #eff6ff; color: #1e3a8a; border-radius: 999px; padding: 3px 10px; font-size: 12px; }
 .rv-plan-chip b { font-weight: 600; }
 .rv-wp-basis { margin: 6px 0; padding-left: 18px; display: grid; gap: 3px; font-size: 13px; }
+
+/* In plan / Out switch (2026-11-20) */
+.rv-plan-sw { display: inline-flex; align-items: center; gap: 6px; border: none; background: none; padding: 2px 0; cursor: pointer; color: var(--vw-gray-60); font-size: 12px; }
+.rv-plan-sw i { position: relative; width: 34px; height: 18px; border-radius: 999px; background: #d1d5db; transition: background .15s; flex: none; }
+.rv-plan-sw i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: left .15s; box-shadow: 0 1px 2px rgba(0,0,0,.25); }
+.rv-plan-sw.on i { background: #1d4ed8; }
+.rv-plan-sw.on i::after { left: 18px; }
+.rv-plan-sw.on { color: #1d4ed8; }
+.rv-plan-sw:focus-visible i { outline: 2px solid #1d4ed8; outline-offset: 2px; }

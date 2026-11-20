@@ -4528,9 +4528,7 @@ function WeekPlan({ b, fams, plan, onPlan, sales, periodId }: { sales: string; p
           ))}
           {!dialMoves.length && !cellMoves.length ? <span className="rv-wp-ks">No measurable change to the dials or cells this week.</span> : null}
         </div>
-        {r.ids?.length ? (
-          <FocusTable label={`${r.label} · ${r.ids.length} clinics`} rows={clinicsQ?.ready ? clinicsQ.rows : null} onClose={() => setSel(null)} periodId={periodId} sales={sales} />
-        ) : <p className="rv-wp-ks">No clinic list for this action.</p>}
+        <p className="rv-wp-ks">{r.ids?.length ? `The ${r.ids.length} clinics are listed below the action plan.` : "No clinic list for this action."}</p>
       </div>
     );
   };
@@ -4610,7 +4608,7 @@ function WeekPlan({ b, fams, plan, onPlan, sales, periodId }: { sales: string; p
             ))}
           </div>
           <div className="rv-wp-card p0">
-            <div className="rv-wp-ch pad"><div><h2>Actions<Info k="queue" /></h2><p className="rv-wp-ks">Scorecard actions and Growth opportunities, ranked by the revenue per hour each adds after the actions above it (a clinic counts once). Click an action to see how it moves your scorecard and its clinics; use In plan / Add to change your plan. Suggested Growth actions stay out until you add them.</p></div></div>
+            <div className="rv-wp-ch pad"><div><h2>Actions<Info k="queue" /></h2><p className="rv-wp-ks">Scorecard actions and Growth opportunities, ranked by the revenue per hour each adds after the actions above it (a clinic counts once). Click an action to see how it moves your scorecard; its clinics list below the plan. Use the In plan / Out switch to change your plan. Suggested Growth actions stay out until you add them.</p></div></div>
             <div className="rv-wp-filters" role="group" aria-label="Filter the actions">
               <select value={filt.pillar ?? ""} onChange={e => setFilt(f => ({ ...f, pillar: e.target.value || null }))} aria-label="Pillar">
                 <option value="">Pillar · any</option>
@@ -4648,8 +4646,8 @@ function WeekPlan({ b, fams, plan, onPlan, sales, periodId }: { sales: string; p
                   <span className="rv-mono" title={Math.abs(r.mexp - r.exp) >= 1 ? `${K(r.exp)} on its own; ${K(r.mexp)} after the actions above it` : undefined}>{K(r.mexp)}</span>
                   <span className="rv-mono g">{K(r.score)}</span>
                   <span>
-                    <button type="button" className={`rv-plan-pin${r.inPlan ? " on" : ""}`} onClick={ev => { ev.stopPropagation(); toggle(r.id, !!r.inPlan); }} title={r.inPlan ? "Take it out of this week's plan" : "Add it to this week's plan"}>
-                      {r.inPlan ? "✓ In plan" : "+ Add"}{plan.pins[r.id] ? " 📌" : ""}
+                    <button type="button" role="switch" aria-checked={!!r.inPlan} aria-label={`${r.label}: ${r.inPlan ? "in plan" : "out of plan"}`} className={`rv-plan-sw${r.inPlan ? " on" : ""}`} onClick={ev => { ev.stopPropagation(); toggle(r.id, !!r.inPlan); }} title={r.inPlan ? "In this week's plan: click to take it out" : "Out of this week's plan: click to put it in"}>
+                      <i /><span>{r.inPlan ? "In plan" : "Out"}</span>
                     </button>
                   </span>
                 </div>
@@ -4701,6 +4699,9 @@ function WeekPlan({ b, fams, plan, onPlan, sales, periodId }: { sales: string; p
           </section>
         );
       })}
+      {selRow?.ids?.length ? (
+        <FocusTable label={`${selRow.label} · ${selRow.ids.length} clinics`} rows={clinicsQ?.ready ? clinicsQ.rows : null} onClose={() => setSel(null)} periodId={periodId} sales={sales} />
+      ) : null}
     </>
   );
 }
@@ -4835,7 +4836,7 @@ const TAB_GUIDE: Partial<Record<Tab, { title: string; lead: string; items: Guide
       { t: "Hours I can sell", d: "Set your selling hours; the rest of the 40 go to admin, meetings and travel. Actions fill your hours from the top of the queue." },
       { t: "Gap to goal this week", d: "Where the week is heading against goal, and how much of any shortfall the planned actions are expected to cover (existing clinics and new business shown separately)." },
       { t: "Which pillar first", d: "Pillars ranked by expected revenue per hour of what is in your plan. Click one to show only its actions in the queue." },
-      { t: "Action queue", d: "Every action ranked by expected dollars per hour, each clinic counted once. Click an action to see how it moves your dials and scorecard and its clinic list; + Add / In plan changes the plan; type in the Hours box to use your own time." },
+      { t: "Action queue", d: "Every action ranked by expected dollars per hour, each clinic counted once. Click an action to see how it moves your dials and scorecard (its clinics list below the plan); the In plan / Out switch changes the plan; type in the Hours box to use your own time." },
       { t: "How expected revenue is calculated", d: "Expected = upside x likelihood. Upside is the weekly dollars at stake for that action (its basis is listed under the queue). Likelihood starts from your own reorder rate after a touch this quarter, blended toward 50% while the sample is small, then adjusted per action and capped at 90%. Win-backs count half their baseline. Open \"How expected revenue is calculated\" under the queue for each action's figures." },
       { t: "Favour pillars that are behind", d: "Boosts pillars the scorecard shows as behind (x1.5) or watch (x1.15). Turn it off to rank on revenue per hour alone." },
     ],
@@ -4940,7 +4941,7 @@ const INFO: Record<string, string> = {
   gap: "Where this week is heading against its goal (existing clinics plus the new-business goal), and how much of any shortfall the actions in your plan are expected to cover.",
   hours: "How your 40 hours split across admin, each pillar and free time.",
   pillar: "Which pillar returns the most per hour in your plan. Click a pillar to show only its actions in the queue. Behind pillars get a boost when the toggle is on.",
-  queue: "All actions ranked by expected $/hour (upside x likelihood / hours), each clinic counted once. Click an action to open its impact and clinic list; + Add / In plan changes the plan; edit the Hours box to use your own time. Open 'How expected revenue is calculated' under the queue for each action's figures.",
+  queue: "All actions ranked by expected $/hour (upside x likelihood / hours), each clinic counted once. Click an action to open its impact (its clinics list below the plan); the In plan / Out switch changes the plan; edit the Hours box to use your own time. Open 'How expected revenue is calculated' under the queue for each action's figures.",
   great: "What's going right in this window. Beating goal, Comebacks and Bundle gainers look at existing clinics only, each against its own goal (new and returning clinics have none: they sit under the new-business goal). New-logo wins counts this year's new clinics plus returning ones (no baseline, ordering again) that ordered in the window. The touch line is the share of clinics you touched in the last N days that reordered since; N follows the Touch effort 'Order within' choice (14 on any time). Click a number for the clinics.",
   headline: "Booked vs goal for this window and the $/day needed for the days left.",
 };
