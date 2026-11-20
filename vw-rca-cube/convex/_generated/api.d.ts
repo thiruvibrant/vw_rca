@@ -13,6 +13,8 @@ import type * as access from "../access.js";
 import type * as appState from "../appState.js";
 import type * as auth from "../auth.js";
 import type * as banners from "../banners.js";
+import type * as growth from "../growth.js";
+import type * as previewSeed from "../previewSeed.js";
 import type * as config from "../config.js";
 import type * as constants from "../constants.js";
 import type * as functions from "../functions.js";
@@ -46,6 +48,8 @@ declare const fullApi: ApiFromModules<{
   appState: typeof appState;
   auth: typeof auth;
   banners: typeof banners;
+  growth: typeof growth;
+  previewSeed: typeof previewSeed;
   config: typeof config;
   constants: typeof constants;
   functions: typeof functions;

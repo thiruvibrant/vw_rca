@@ -1008,7 +1008,7 @@ function TodayTab({
       </div>
       <HowCalc>
         <p>Who is on it: existing clinics (not new, with a baseline) that last ordered at least 5 days ago and have not churned by their own threshold: 45 days, or three times their usual gap between orders for a slow buyer.</p>
-        <p>Order: the clinic's goal for the window, biggest first, then the longest overdue. The plan's "Overdue reorder calls" uses the dollars each clinic is short of that goal instead. The chips narrow the list by health note or portfolio status.</p>
+        <p>Order: the clinic's goal for the window, biggest first, then the longest overdue. The plan's "Overdue reorder calls" uses the dollars each clinic is short of that goal instead. The chips narrow the list by health note, by "At risk · top 20%" (the clinics on the At-risk card that are in the scorecard's Active top 20% group: late against their own rhythm and short of baseline) or by portfolio status. The "Churned / Lost" note follows each clinic's own churn line, the same one the scorecard uses.</p>
       </HowCalc>
       <div className="rv-chips">
         <button type="button" className={health === "" ? "is-on" : ""} onClick={() => onHealth("")}>
@@ -2330,7 +2330,7 @@ function useCellContrib(b: Book, pg: PGStats | null, pgd: ReturnType<typeof useP
     const set = new Set(ids);
     const inList = (r: ContribRow) => set.has(r.clinic);
     if (label === "At-risk customers")
-      return { universe: b => b.existingIds ?? [], f: r => (inList(r) ? -1 : 1), unit: "clinics", amount: r => (inList(r) ? Math.min(r.realChange, 0) : 0), up: "Not at risk", down: "At risk: slipping or well under baseline", note: "Existing clinics last seen 5–44 days ago that are flagged slipping or overdue, or are under half their baseline. The dollar figure is their real shortfall below baseline; the rest are on rhythm." };
+      return { universe: b => b.existingIds ?? [], f: r => (inList(r) ? -1 : 1), unit: "clinics", amount: r => (inList(r) ? Math.min(r.realChange, 0) : 0), up: "Not at risk", down: "At risk: late against its own rhythm and below baseline", note: "Existing clinics running late against their own order rhythm that are at least 10% below baseline. The dollar figure is their real shortfall below baseline; the rest are on rhythm." };
     if (label === "Low-AOV customers")
       return { universe: b => b.activeIds ?? [], f: r => (inList(r) ? -1 : 1), unit: "clinics", up: "AOV at or above $400", down: "AOV under $400", note: "Clinics that ordered in this window, split by whether their average order is under $400." };
     if (label === "Cross-sell candidates" && isFzFamily(family) && fz?.ready) return fzContrib(fz);
@@ -2820,7 +2820,7 @@ function kpiLibrary(k: Book, b: Book, hz: Fam | undefined, totalRev: number, pg?
     n("Retention", "Repeat Purchase Rate", "Active clinics with 2+ orders.", P(k.repeatRate)),
     n("Retention", "Time to Next Order", "Approx. days between orders for repeat clinics (window ÷ orders).", k.daysBetweenOrders ? `${k.daysBetweenOrders.toFixed(0)}d` : null),
     n("Retention", "Dormant Customers", "Clinics with no order in 9+ months.", String(k.dormant)),
-    n("Retention", "At-Risk Revenue", "Shortfall at clinics flagged slipping/overdue or under half their baseline.", K(k.atRiskRev)),
+    n("Retention", "At-Risk Revenue", "Shortfall at clinics running late against their own order rhythm and 10%+ below baseline.", K(k.atRiskRev)),
     n("Retention", "Reactivation Rate", "Lapsed clinics that resumed ordering.", null, "needs lapsed-list history"),
     n("Expansion", "Expansion Revenue", "Revenue above baseline at growing existing clinics.", SK(k.expansionRev)),
     n("Expansion", "Expansion Rate", "Existing clinics above baseline.", P(k.expansionRate)),
@@ -4742,7 +4742,7 @@ function pstat(b: Book): string | null {
   const c: Array<[string, number]> = b.pstatusCounts ?? [];
   return c.length ? c.map(([k2, n]) => `${n} ${k2.toLowerCase()}`).join(" · ") : null;
 }
-function usePG(sales?: string, periodId?: string) {
+export function usePG(sales?: string, periodId?: string) {
   const run = useRcaAction(api.productGrowth.productGrowth);
   const eligQ = useQuery(api.productGrowth.eligible, sales ? { password: pw(), sales } : "skip");
   const [data, setData] = useState<{ clinics: PGClinic[] } | null>(null);
@@ -4775,7 +4775,7 @@ function pgFailedRows<R extends { cells: Array<{ sub: string }> }>(rows: R[], pg
   return rows.map(r => ({ ...r, cells: r.cells.map(c => (c.sub === PG_LOADING ? { ...c, sub: PG_FAILED } : c)) }));
 }
 const NON_ZOOMER = "Non Zoomer";
-function pgStats(b: Book, clinics: PGClinic[], elig: Array<{ clinic: string; family: string }>, family: string): PGStats {
+export function pgStats(b: Book, clinics: PGClinic[], elig: Array<{ clinic: string; family: string }>, family: string): PGStats {
   const newSet = new Set<string>(b.newIds ?? []);
   const fams = (r: Record<string, number>) => Object.keys(r).filter(f => f !== "Unmapped" && r[f] > 0);
   const prod = (r: Record<string, number>) => fams(r).filter(f => f !== NON_ZOOMER);

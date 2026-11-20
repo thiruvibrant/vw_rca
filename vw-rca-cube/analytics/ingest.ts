@@ -150,6 +150,7 @@ export const putClinicMeta = internalMutation({
         touchDataAvailable: v.optional(v.boolean()),
         medianGapBd: v.optional(v.number()),
         bdSinceLastOrder: v.optional(v.number()),
+        p90GapBd: v.optional(v.number()),
         signupDate: v.optional(v.string()),
         isNew: v.optional(v.boolean()),
         life: v.optional(v.string()),

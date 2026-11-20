@@ -414,17 +414,18 @@ const SECTIONS: Section[] = [
         asks: "Which clinics that normally buy from me are starting to slip?",
         see: "A count and the dollars they are short of their baseline.",
         how: [
-          "Take existing clinics whose last order was 5 to 44 days ago (past that they count as churned).",
-          "Keep the ones the system has flagged as slipping, overdue, at risk or dropping, judged over the whole analysis window.",
+          "Take existing clinics that ordered 5 or more days ago and have not churned.",
+          "Keep the ones running late against their own rhythm: past 1.5 times their usual gap between orders, or past their longest usual gap if they order in bursts (never later than most of the way to the churn line). A clinic with too little history (under three order dates) uses the old 5 to 44 day window and needs a slipping, overdue or bleeding flag.",
+          "Keep the ones at least 10% below their baseline over the whole analysis window. No flag is needed: a clinic that is late and short of its baseline is at risk. A missed call (Ghosted VIP) alone does not count; the untouched high-value list covers that.",
           "The dollars are how far below their baseline those clinics are this window.",
         ],
         who: "Existing clinics only. The same clinics are at risk on every tab; only the dollars change with the window.",
         click: "The at-risk clinics, with the rest of the existing clinics for contrast.",
         good: "A \"where to act\" cell: these are your calls.",
-        watch: ["A clinic can be at risk and still above its baseline this window; the flag is about its rhythm."],
+        watch: ["A clinic that is on its own usual cadence is not at risk, even if it has not ordered for a few weeks. A clinic above its baseline is never at risk."],
         example: {
-          story: "Twelve existing clinics ordered 5 to 44 days ago. Four of them are flagged as slipping: they usually reorder every two weeks and it has been five. Those four are $9K below their baseline together.",
-          viz: <Dots total={12} on={4} onLabel="flagged as slipping" offLabel="on their usual rhythm" />,
+          story: "Twelve existing clinics have not churned. Four are at risk: they usually reorder every two weeks, it has been five, and they are 10% or more below baseline. Those four are $9K below their baseline together.",
+          viz: <Dots total={12} on={4} onLabel="at risk" offLabel="on their usual rhythm" />,
         },
       },
       {

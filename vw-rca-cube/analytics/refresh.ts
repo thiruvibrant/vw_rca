@@ -27,7 +27,7 @@ import {
   rollingBaseline,
   weekStart,
 } from "./dateUtils";
-import { buyingRhythm } from "./flags";
+import { buyingGapP90, buyingRhythm } from "./flags";
 import { classifyClinic, type Lifecycle } from "./lifecycleRules";
 import { gatedAction } from "./gated";
 import { topDownAllocate } from "./topDown";
@@ -1303,11 +1303,11 @@ export const refreshData = internalAction({
       const orderDatesOf = await pOrderDateHistory;
       const rhythmOf = new Map<
         string,
-        { medianGapBd: number; bdSinceLastOrder: number }
+        { medianGapBd: number; bdSinceLastOrder: number; p90GapBd?: number }
       >();
       for (const [clinic, dates] of orderDatesOf) {
         const r = buyingRhythm(dates, currentEnd);
-        if (r) rhythmOf.set(clinic, r);
+        if (r) rhythmOf.set(clinic, { ...r, p90GapBd: buyingGapP90(dates, currentEnd) });
       }
 
       const lastOrderRows = await pLastOrderAsOf;
@@ -1641,6 +1641,7 @@ export const refreshData = internalAction({
           touchDataAvailable: lastTouchOf.has(clinic),
           medianGapBd: rhythmOf.get(clinic)?.medianGapBd,
           bdSinceLastOrder: rhythmOf.get(clinic)?.bdSinceLastOrder,
+          p90GapBd: rhythmOf.get(clinic)?.p90GapBd,
           signupDate: clinicSignupOf.get(clinic),
           // Label per month-end (short codes, analytics/clinicLabels.ts) and this month's Top 20% standing.
           labelAt: labelAtOf.get(clinic) ?? {},
@@ -3350,11 +3351,11 @@ export const refreshSnapshot = internalAction({
       const orderDatesOf = await pOrderDateHistory;
       const rhythmOf = new Map<
         string,
-        { medianGapBd: number; bdSinceLastOrder: number }
+        { medianGapBd: number; bdSinceLastOrder: number; p90GapBd?: number }
       >();
       for (const [clinic, dates] of orderDatesOf) {
         const r = buyingRhythm(dates, currentEnd);
-        if (r) rhythmOf.set(clinic, r);
+        if (r) rhythmOf.set(clinic, { ...r, p90GapBd: buyingGapP90(dates, currentEnd) });
       }
 
       const lastOrderRows = await pLastOrderAsOf;
@@ -3688,6 +3689,7 @@ export const refreshSnapshot = internalAction({
           touchDataAvailable: lastTouchOf.has(clinic),
           medianGapBd: rhythmOf.get(clinic)?.medianGapBd,
           bdSinceLastOrder: rhythmOf.get(clinic)?.bdSinceLastOrder,
+          p90GapBd: rhythmOf.get(clinic)?.p90GapBd,
           signupDate: clinicSignupOf.get(clinic),
           // Label per month-end (short codes, analytics/clinicLabels.ts) and this month's Top 20% standing.
           labelAt: labelAtOf.get(clinic) ?? {},
