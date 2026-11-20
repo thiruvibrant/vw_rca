@@ -117,11 +117,11 @@ Same waiting rule as the rep view's flow: the waits use "unclicked", which only 
 
 
 ## Week plan and Growth (2026-11-20)
-- **Sections:** Outcome this week, Plan settings, Do these first, Your 40 hours, Which pillar first + Action queue. Each moves (▲ ▼) and
-  folds; the layout is saved per rep in the browser (`rv-week-layout:<rep>`), Reset layout restores it.
-- **Outcome this week:** Existing business, New revenue and Combined (heading now, with the plan, goal, % of goal) and the cells the plan
-  moves (at-risk, Lapsing, churn, FZ cross-sell, whitespace). Impact on a queue row fills the Selected column with that action's effect.
-  - New Business actions count toward New revenue; every other pillar's toward Existing business. An estimate, not a forecast.
+- **Sections:** This week's scorecard (Existing business / New revenue / Combined tiles: heading to, goal, % of goal now and with the
+  plan, plus Gap to goal this week), Your hours (selling hours, planned hours, expected revenue, favour-behind toggle, the 40-hour bar),
+  Action plan (Which pillar first + the actions). Each moves (▲ ▼) and folds, saved per rep in the browser (`rv-week-layout2:<rep>`).
+- **Actions:** clicking one opens it (it does not change the plan): what it brings in dollars, how it moves each dial and scorecard cell
+  (at-risk, Lapsing, churn, FZ cross-sell, whitespace), and its clinic list; the tiles show its effect too. + Add / In plan changes the plan.
 - **No double counting:** the plan is filled by marginal revenue per hour (`marginalFill`, src/lib/planImpact.ts): a clinic in several
   actions counts once, and each action's Expected is what it adds after the actions above it.
 - **Growth opportunities:** every one not Dropped appears with the rep's own clinics. Committed / Executing / Scaling ("Growth") are

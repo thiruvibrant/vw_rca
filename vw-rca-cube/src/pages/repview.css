@@ -994,13 +994,45 @@ button.rv-wp-pil.sel{background:#e0e9ff;box-shadow:inset 3px 0 0 #1d4ed8}
 .rv-wp-filters select { border: 1px solid var(--vw-gray-15); border-radius: 6px; padding: 4px 8px; font: inherit; font-size: 13px; background: var(--vw-white); color: var(--vw-ink); }
 .rv-wp-chip { border: 1px solid var(--vw-gray-15); border-radius: 999px; padding: 3px 12px; font-size: 12px; background: var(--vw-white); color: var(--vw-gray-60); cursor: pointer; }
 .rv-wp-chip.on { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
-.rv-plan-row { grid-template-columns: 30px minmax(0,1fr) 52px 84px 76px 78px 78px; }
+.rv-plan-row { grid-template-columns: 44px minmax(0,1fr) 52px 84px 76px 96px; }
 .rv-wp-sec .rv-wp-pb.big { height: 10px; margin: 12px 0 6px; background: #e5e7eb; border-radius: 6px; overflow: hidden; }
 .rv-wp-sec .rv-wp-pb.big i { display: block; height: 100%; }
 .rv-plan-row.is-sel { box-shadow: inset 3px 0 0 #1d4ed8; background: #f5f8ff; }
 .rv-wp-impbtn { border: 1px solid var(--vw-gray-15); border-radius: 6px; background: var(--vw-white); padding: 3px 8px; font-size: 12px; color: var(--vw-gray-60); cursor: pointer; white-space: nowrap; }
 .rv-wp-impbtn.on, .rv-wp-impbtn:hover { border-color: #1d4ed8; color: #1d4ed8; }
 @media (max-width: 900px) {
-  .rv-plan-row { grid-template-columns: 26px minmax(0,1fr) 52px 72px 64px; }
-  .rv-plan-row > span:nth-child(6), .rv-plan-row > span:nth-child(7) { display: none; }
+  .rv-plan-row { grid-template-columns: 36px minmax(0,1fr) 52px 72px 88px; }
+  .rv-plan-row > span:nth-child(5) { display: none; }
 }
+/* Week plan v2 (2026-11-20): dial tiles + gap at the top, actions that expand. */
+.rv-wp-dials { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 14px; }
+@media (max-width: 1000px) { .rv-wp-dials { grid-template-columns: 1fr; } }
+.rv-wp-dial { border: 1px solid var(--vw-gray-15); border-radius: var(--radius-lg); padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+.rv-wp-dial.is-total { background: #f8fafc; }
+.rv-wp-dial-v b { font-family: 'Roboto Mono', ui-monospace, monospace; font-size: 26px; font-weight: 500; }
+.rv-wp-dial-v span { font-size: 12px; color: var(--vw-gray-60); }
+.rv-wp-dial-bar { position: relative; height: 10px; background: #e5e7eb; border-radius: 6px; overflow: hidden; }
+.rv-wp-dial-bar i { position: absolute; top: 0; bottom: 0; }
+.rv-wp-dial-bar i.now { left: 0; background: #1d4ed8; }
+.rv-wp-dial-bar i.plan { background: #86efac; }
+.rv-wp-dial-s { font-size: 12px; color: var(--vw-gray-60); }
+.rv-wp-dial-s b.good { color: #15803d; }
+.rv-wp-dial-sel { font-size: 12px; color: #1d4ed8; background: #f5f8ff; border-radius: 6px; padding: 4px 8px; }
+.rv-wp-gap2 { margin-top: 16px; border-top: 1px solid var(--vw-gray-10); padding-top: 12px; }
+.rv-wp-gap2 h3 { margin: 0 0 6px; font-size: 15px; font-weight: 600; }
+.rv-wp-gap2 .rv-wp-gapnums { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.rv-wp-gap2 .rv-wp-gapnums span { display: block; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--vw-gray-60); }
+.rv-wp-gap2 .rv-wp-gapnums b { font-family: 'Roboto Mono', ui-monospace, monospace; font-size: 20px; font-weight: 500; }
+.rv-wp-gap2 .rv-wp-gapnums b.bad { color: #dc2626; }
+.rv-wp-gap2 .rv-wp-gapnums b.good, .rv-wp-gap2 .rv-wp-gapnums b.g { color: #16a34a; }
+.rv-plan-item.is-open { background: #fbfcff; }
+.rv-plan-row { cursor: pointer; }
+.rv-plan-pin { border: 1px solid var(--vw-gray-15); border-radius: 6px; background: var(--vw-white); padding: 3px 8px; font-size: 12px; color: var(--vw-gray-60); cursor: pointer; white-space: nowrap; }
+.rv-plan-pin.on { border-color: #1d4ed8; background: #1d4ed8; color: #fff; }
+.rv-plan-exp { padding: 10px 21px 16px 58px; border-bottom: 1px solid var(--vw-gray-10); cursor: default; }
+.rv-plan-exp-h { font-size: 14px; margin-bottom: 8px; }
+.rv-plan-exp-h b.g { color: #15803d; }
+.rv-plan-exp-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.rv-plan-chip { border: 1px solid #bfdbfe; background: #eff6ff; color: #1e3a8a; border-radius: 999px; padding: 3px 10px; font-size: 12px; }
+.rv-plan-chip b { font-weight: 600; }
+.rv-wp-basis { margin: 6px 0; padding-left: 18px; display: grid; gap: 3px; font-size: 13px; }
