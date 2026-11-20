@@ -3,7 +3,7 @@ import { internalQuery, type QueryCtx } from "./_generated/server";
 import { loadCfg } from "./config";
 import { isCompanyLead, isTeamScope, teamOf } from "./scope";
 import { ACTIVE_COHORTS } from "./lifecycle";
-import { decodeLabel, labelDateOf, lifeIn, moveOf, windowDates } from "./clinicLabels";
+import { decodeLabel, labelDateOf, lifeIn, moveOf, onListOf, windowDates } from "./clinicLabels";
 import { goalFactors } from "./baseline";
 import {
   addDays,
@@ -58,6 +58,10 @@ export type ClinicRow = {
   prevCohort?: string;
   /** The label as of the data-through date (refresh time), whatever window is open: today's actions (Call-first) use it. */
   cohortNow?: string;
+  /** On the company Top 20% list as of the data-through date (a Lapsing clinic leaves the Top 20% cohort but stays on the list). */
+  onListNow?: boolean;
+  /** On the Top 20% list as of this window's end. */
+  onListAt?: boolean;
   /** Lifecycle shown in this window (label then, for a past window); `life` stays today's status for at-risk. */
   lifeAt?: string;
   /** up / down / neutral when the label changed since the window before (analytics/clinicLabels.ts moveOf). */
@@ -761,6 +765,8 @@ export async function drill(
       life: m.life,
       lifeAt: lifeHere(m),
       cohortNow: m.cohort,
+      onListNow: onListOf(m.labelAt?.[cfg.currentEnd]) || m.cohort === "retained_top20",
+      onListAt: onListOf(m.labelAt?.[wDates.at]) || cohort === "retained_top20",
       medianGapBd: m.medianGapBd,
       p90GapBd: m.p90GapBd,
       bdSinceLastOrder: m.bdSinceLastOrder,

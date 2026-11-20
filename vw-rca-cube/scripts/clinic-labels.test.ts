@@ -2,9 +2,10 @@
 // window's end, which dates a window compares, and the direction of a move. No Cube, no Convex.
 //   node --import tsx scripts/clinic-labels.test.ts
 import assert from "node:assert/strict";
-import { decodeLabel, encodeLabel, flowGroupOf, flowsOf, labelAtOr, labelDateOf, labelDates, labelDateSpan, labelOf, labelsFor, lifeIn, moveOf, onListOf, pastLabelDates, revenueMonthsFor, standingIn, tierLists, windowDates } from "../analytics/clinicLabels";
+import { decodeLabel, encodeLabel, flowGroupOf, lapsingAt, flowsOf, labelAtOr, labelDateOf, labelDates, labelDateSpan, labelOf, labelsFor, lifeIn, moveOf, onListOf, pastLabelDates, revenueMonthsFor, standingIn, tierLists, windowDates } from "../analytics/clinicLabels";
 import { cohortHistoryRows } from "../analytics/cohortHistory";
 import { topCohortAtRisk } from "../analytics/callFirst";
+import { isAtRisk, isLateByRhythm } from "../analytics/atRisk";
 
 let n = 0;
 const test = (name: string, fn: () => void) => {
@@ -236,6 +237,49 @@ test("cohort history: clinics outside the rebuild are labelled from their orders
   assert.equal(decodeLabel(by.get("77")!.labelAt["2026-11-12"]), "churned");
   assert.equal(by.get("77")!.sales, "—");
   assert.ok(!by.has("99")); // no revenue, not in the rebuild: left out
+});
+
+test("lapsing: late against the clinic's own rhythm, as of a date; needs a rhythm and 5+ days", () => {
+  // Orders every 3 days (a Top 20% clinic's pattern), then silent. Median gap 2 business days -> late line max(1.5 x 2, ...) = 3 business days.
+  const dates: string[] = [];
+  for (let d = Date.parse("2026-08-03T00:00:00Z"); d <= Date.parse("2026-09-25T00:00:00Z"); d += 3 * 864e5) dates.push(new Date(d).toISOString().slice(0, 10));
+  const last = dates[dates.length - 1];
+  assert.equal(lapsingAt(dates, last), false); // just ordered
+  assert.equal(lapsingAt(dates, "2026-09-28"), false); // under 5 days, even if over the late line
+  assert.equal(lapsingAt(dates, "2026-10-17"), true); // about 3 weeks silent: lapsing, and well short of the 45-day churn line
+  assert.equal(lapsingAt(dates.slice(0, 2), "2026-10-17"), false); // no rhythm under 3 order dates
+  assert.equal(lapsingAt(dates, "2026-09-20"), false); // order dates after the cutoff are ignored
+  // A slow buyer (every ~40 days) is not lapsing at day 22.
+  const slow = ["2026-01-05", "2026-02-14", "2026-03-26", "2026-05-05", "2026-06-14"];
+  assert.equal(lapsingAt(slow, "2026-07-06"), false);
+  // labelOf: lifecycle first, then lapsing, then the list; the upper-case code keeps the list membership.
+  assert.equal(labelOf({ isNew: false, life: "active" }, true, true), "lapsing");
+  assert.equal(labelOf({ isNew: false, life: "churned" }, true, true), "churned");
+  assert.equal(labelOf({ isNew: true, life: "active" }, true, true), "new");
+  assert.equal(encodeLabel("lapsing", true), "L");
+  assert.equal(onListOf("L"), true);
+  assert.equal(decodeLabel("L"), "lapsing");
+  assert.equal(decodeLabel("l"), "lapsing");
+  assert.equal(moveOf("retained_top20", "lapsing"), "neutral"); // a warning, not a move
+  assert.equal(moveOf("lapsing", "churned"), "down");
+  assert.equal(moveOf("churned", "lapsing"), "up");
+});
+
+test("lapsing and At-risk: the card is Lapsing plus a real shortfall, and a churned clinic is neither", () => {
+  assert.equal(isLateByRhythm(2, undefined, 3), false);
+  assert.equal(isLateByRhythm(2, undefined, 4), true);
+  assert.equal(isLateByRhythm(2, 20, 15), false); // its own p90 gap widens the line
+  const base = { life: "active", daysSinceLast: 22, medianGapBd: 2, bdSinceLastOrder: 16, baseline: 1000, realChange: -300, health: [] as string[] };
+  assert.equal(isAtRisk(base), true);
+  assert.equal(isAtRisk({ ...base, realChange: -50 }), false); // late but short of the 10% shortfall: Lapsing only
+  assert.equal(isAtRisk({ ...base, life: "churned" }), false);
+  // Call-first chip: a Lapsing clinic on the list counts as a top clinic.
+  const rows = [
+    { clinic: "1", cohort: "lapsing", onList: true },
+    { clinic: "2", cohort: "lapsing", onList: false },
+    { clinic: "3", cohort: "retained_top20" },
+  ];
+  assert.deepEqual([...topCohortAtRisk(rows, new Set(["1", "2", "3"]))].sort(), ["1", "3"]);
 });
 
 console.log(`${n} checks passed`);

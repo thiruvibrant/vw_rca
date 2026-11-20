@@ -384,7 +384,7 @@ export const book = scopedQuery({
     // filter narrows to one tag for a targeted call list.
     // The At risk chip comes first: the clinics on the At-risk card that are in the scorecard's Active top 20% group (company-wide, the tag
     // shown on each clinic). Slow, small buyers stay on the card but not on this call list.
-    const atRiskSet = topCohortAtRisk(existing.map(r => ({ clinic: r.clinic, cohort: r.cohortNow ?? r.cohort })), new Set(atRiskRows.map(r => r.clinic)));
+    const atRiskSet = topCohortAtRisk(existing.map(r => ({ clinic: r.clinic, cohort: r.cohortNow ?? r.cohort, onList: r.onListNow })), new Set(atRiskRows.map(r => r.clinic)));
     const healthTags = [AT_RISK_TAG, ...new Set(existing.flatMap(r => r.health))].sort((a, b) => (a === AT_RISK_TAG ? -1 : b === AT_RISK_TAG ? 1 : a.localeCompare(b)));
     const pstatusTags = [...new Set(existing.flatMap(r => r.pstatus))].sort();
     const callFirstPool = existing

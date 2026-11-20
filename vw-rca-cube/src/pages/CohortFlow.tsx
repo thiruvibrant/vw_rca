@@ -19,6 +19,7 @@ type ClinicRow = { clinic: string; name: string; sales: string; before?: string;
 const LABEL: Record<string, string> = {
   retained_top20: "Active · top 20%",
   retained_rest: "Active · rest",
+  lapsing: "Active · lapsing",
   new: "Active · new",
   reactivated: "Reactivated",
   churned: "Churned",

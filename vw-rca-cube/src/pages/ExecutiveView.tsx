@@ -43,6 +43,7 @@ const COHORTS: Record<string, string> = {
   new: "New clinics (active)",
   retained_top20: "Active — top 20%",
   retained_rest: "Active — remaining 80%",
+  lapsing: "Active — lapsing",
   reactivated: "Reactivated clinics",
 };
 

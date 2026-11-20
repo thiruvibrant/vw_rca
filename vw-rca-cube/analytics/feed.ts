@@ -489,7 +489,7 @@ export async function build(
     const cheapTop = rows
       .filter(
         r =>
-          r.cohort === "retained_top20" &&
+          (r.cohort === "retained_top20" || (r.cohort === "lapsing" && r.onListAt)) &&
           r.orders > 0 &&
           r.aov > 0 &&
           r.aov < 400 &&
@@ -990,6 +990,7 @@ async function searchClinics(ctx: QueryCtx, term: string, sales?: string) {
       new: "New clinics (still ordering)",
       retained_top20: "Active top-20% clinics",
       retained_rest: "Active — everyone else",
+      lapsing: "Lapsing clinics (late against their own rhythm)",
       reactivated: "Reactivated clinics",
     };
     lists.push({

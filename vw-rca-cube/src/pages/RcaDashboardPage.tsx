@@ -1075,6 +1075,7 @@ const COHORT_LABEL: Record<string, string> = {
   new: "New clinics (active)",
   retained_top20: "Active — top 20%",
   retained_rest: "Active — remaining 80%",
+  lapsing: "Active — lapsing",
   reactivated: "Reactivated clinics",
 };
 
@@ -1098,14 +1099,16 @@ function groupActive(rows: Row[]): Row[] {
   const top = rows.find(r => r.key === "retained_top20");
   const rest = rows.find(r => r.key === "retained_rest");
   const fresh = rows.find(r => r.key === "new");
+  const lapsing = rows.find(r => r.key === "lapsing");
   if (!top || !rest) return rows;
   const clinicsSub = (r: Row, fallback: string) => (r.clinics !== undefined ? `${r.clinics.toLocaleString("en-US")} clinics` : fallback);
   // Active has three tiers (2026-10-18): New (this year's clinics still ordering), the largest 20%, everyone else.
-  const parts = [fresh, top, rest].filter(Boolean) as Row[];
+  const parts = [fresh, top, rest, lapsing].filter(Boolean) as Row[];
   const tiers: Row[] = [
     ...(fresh ? [{ ...fresh, label: "New", sub: clinicsSub(fresh, fresh.sub ?? "") }] : []),
     { ...top, label: "Largest 20%", sub: clinicsSub(top, top.sub ?? "") },
     { ...rest, label: "Everyone else", sub: clinicsSub(rest, rest.sub ?? "") },
+    ...(lapsing ? [{ ...lapsing, label: "Lapsing", sub: clinicsSub(lapsing, "late against their own order rhythm") }] : []),
   ];
   const n = parts.reduce((t, r) => t + (r.clinics ?? 0), 0);
   const allReal = parts.every(r => r.real !== undefined);
@@ -3769,6 +3772,7 @@ const COHORT_SHORT: Record<string, string> = {
   new: "New",
   retained_top20: "Top 20%",
   retained_rest: "Mid-tail",
+  lapsing: "Lapsing",
   reactivated: "Reactivated",
 };
 

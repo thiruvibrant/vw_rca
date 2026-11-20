@@ -36,7 +36,7 @@ import { baselineDays, bestWindow, dayWeight, goalWeights, lookbackOf } from "./
 import { newClinicFunnelGroups } from "./newClinicFunnel";
 import { eq, O, ordersRows, rows as cubeRows } from "./cube";
 import { dateOf, familyOf, num, splitFamilies, TABLE } from "./powerbi";
-import { labelAtOr, labelDates, labelDateSpan, labelOf, labelsFor, listMonthOf, pastLabelDates, revenueMonthsFor, tierLists, type TierList } from "./clinicLabels";
+import { labelAtOr, labelDates, lapsingAt, labelDateSpan, labelOf, labelsFor, listMonthOf, pastLabelDates, revenueMonthsFor, tierLists, type TierList } from "./clinicLabels";
 import { cohortHistoryRows } from "./cohortHistory";
 
 /**
@@ -66,7 +66,7 @@ async function tierListsFor(days: string[]): Promise<{ lists: Map<string, TierLi
 // Lifecycle stages (Shyam, 2026-10-16): new = first order in the window; retained_* = ordered in the baseline AND the
 // window (top 20% = on the company's last-12-months list, clinicLabels.ts, a value tier of "active"); churned = ordered in the baseline, nothing in the window;
 // reactivated = first order before the window, nothing in the baseline, ordering again now (baseline is zero).
-const COHORTS = ["churned", "new", "retained_top20", "retained_rest", "reactivated"] as const;
+const COHORTS = ["churned", "new", "retained_top20", "retained_rest", "lapsing", "reactivated"] as const;
 type Cohort = (typeof COHORTS)[number];
 
 function chunk<T>(rows: T[], size: number): T[][] {
@@ -775,7 +775,8 @@ export const refreshData = internalAction({
       // established clinic is "top 20%" when it is on this month's company list (rolling 12 months of revenue), the same
       // list in every window and for every rep; before 2026-11 it was the top fifth of retained clinics by baseline revenue.
       const actualCohortOf = new Map<string, Cohort>();
-      for (const [id, lc] of lifeOf) actualCohortOf.set(id, labelOf(lc, currentList?.top.has(id) ?? false));
+      for (const [id, lc] of lifeOf)
+        actualCohortOf.set(id, labelOf(lc, currentList?.top.has(id) ?? false, lc.life === "active" && !lc.isNew && lapsingAt(orderDatesForLife.get(id) ?? [], currentEnd)));
       const expectedCohortOf = actualCohortOf;
       const cohortOf = actualCohortOf;
 
@@ -2915,7 +2916,8 @@ export const refreshSnapshot = internalAction({
       // established clinic is "top 20%" when it is on this month's company list (rolling 12 months of revenue), the same
       // list in every window and for every rep; before 2026-11 it was the top fifth of retained clinics by baseline revenue.
       const actualCohortOf = new Map<string, Cohort>();
-      for (const [id, lc] of lifeOf) actualCohortOf.set(id, labelOf(lc, currentList?.top.has(id) ?? false));
+      for (const [id, lc] of lifeOf)
+        actualCohortOf.set(id, labelOf(lc, currentList?.top.has(id) ?? false, lc.life === "active" && !lc.isNew && lapsingAt(orderDatesForLife.get(id) ?? [], currentEnd)));
       const expectedCohortOf = actualCohortOf;
       const cohortOf = actualCohortOf;
 

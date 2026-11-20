@@ -266,3 +266,20 @@ Proposal with the data behind it: "Proposal: one definition of Top 20% clinics" 
   "Lapsed" in between) is a decision for Shyam.
 - **Code:** `clinicLabels.ts` (`flowsOf`, `flowGroupOf`), `cohortFlow.ts` (`summary`, `clinics`), `src/pages/CohortFlow.tsx`;
   tests in `scripts/clinic-labels.test.ts`.
+
+## 23. Lapsing: a sixth cohort for late-but-not-churned clinics (2026-11-20, Thiru's dev branch; needs Shyam's sign-off)
+- **Rule:** an active, established clinic (not churned, reactivated or new) is **Lapsing** as of a date when it has 3+ order dates
+  (a rhythm), at least 5 days since its last order, and business days since the last order are past its own late line
+  (`isLateByRhythm` in `analytics/atRisk.ts`: 1.5 x its median gap or its p90 gap if longer, never beyond 80% of the way to its churn
+  line). It is worked out per label date (`lapsingAt` in `clinicLabels.ts`), so every window shows the clinic as it was then.
+- **Order of checks:** churned, reactivated, new, **lapsing**, then Top 20% / Rest. A Lapsing clinic leaves those two cohorts (their counts
+  shrink); the upper-case code ("L") still marks that it is on the company Top 20% list, so FZ "Top 20% only", Standing and the Call-first
+  chip (`onListNow`) keep working.
+- **At-risk is a subset:** At-risk = Lapsing + at least 10% below baseline over the whole window (+ a rhythm). On 2026-11-20 all 414
+  at-risk clinics were Lapsing (644 Lapsing in total; 145 of them on the Top 20% list). Clinics with no rhythm (under 3 order dates) are
+  never Lapsing; their at-risk test still uses the fixed window and flags.
+- **Moves:** to or from Lapsing is neutral (a warning, not a move); to Churned is down and from Churned is up, as before.
+- **Where it shows:** a tier of Active in the scorecard trees (rep view, executive and dashboard trees), the Cohort filter and column,
+  the clinic card's Standing, the history strip, and the Cohort movement table's labels.
+- **Open for Shyam:** whether Lapsing should shrink Top 20% / Rest this way (an Active · top 20% clinic that is late now shows as
+  Lapsing), and the 5-day and 1.5 x gap settings, which are the at-risk card's.

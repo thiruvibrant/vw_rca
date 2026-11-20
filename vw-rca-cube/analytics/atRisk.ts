@@ -46,10 +46,19 @@ export function isAtRisk(i: AtRiskInput): boolean {
   if (i.life === undefined && d >= AT_RISK.fixedMaxDays) return false;
   if (!(i.baseline > 0) || -i.realChange < AT_RISK.minShortfall * i.baseline) return false;
   if (i.medianGapBd === undefined || i.bdSinceLastOrder === undefined) return d < AT_RISK.fixedMaxDays && i.health.some(h => FLAGS.test(h));
-  const gap = Math.max(i.medianGapBd, 2);
-  const churnBd = Math.max(AT_RISK.churnFloorBd, AT_RISK.churnMultiple * i.medianGapBd);
-  const late = Math.min(Math.max(AT_RISK.lateRatio * gap, i.p90GapBd ?? 0), AT_RISK.headroom * churnBd);
-  return i.bdSinceLastOrder > late;
+  return isLateByRhythm(i.medianGapBd, i.p90GapBd, i.bdSinceLastOrder);
+}
+
+/**
+ * The rhythm half of the at-risk test, on its own: business days since the last order are past the clinic's own late line (1.5 x its
+ * median gap, or its p90 gap if longer, never past 80% of the way to its churn line). The Lapsing cohort (analytics/clinicLabels.ts) is
+ * this test as of a window's end; At-risk is Lapsing plus a real shortfall against baseline, so the card is a subset of Lapsing.
+ */
+export function isLateByRhythm(medianGapBd: number, p90GapBd: number | undefined, bdSinceLastOrder: number): boolean {
+  const gap = Math.max(medianGapBd, 2);
+  const churnBd = Math.max(AT_RISK.churnFloorBd, AT_RISK.churnMultiple * medianGapBd);
+  const late = Math.min(Math.max(AT_RISK.lateRatio * gap, p90GapBd ?? 0), AT_RISK.headroom * churnBd);
+  return bdSinceLastOrder > late;
 }
 
 /** The clinic's flags, baseline and real change over the whole analysis window (the "all" tab's row). */

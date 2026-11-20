@@ -12,10 +12,12 @@
  *                week and day windows use their month). Up: rest -> top 20%, churned -> reactivated. Down: top 20% -> rest,
  *                anything -> churned. Other changes (new -> established, reactivated -> active) are neutral.
  */
-import { addDays, monthEnd, monthsBackStart, quarterKey } from "./dateUtils";
+import { addDays, diffDays, monthEnd, monthsBackStart, quarterKey } from "./dateUtils";
+import { AT_RISK, isLateByRhythm } from "./atRisk";
+import { buyingGapP90, buyingRhythm } from "./flags";
 import { classifyClinic } from "./lifecycleRules";
 
-export type Label = "retained_top20" | "retained_rest" | "new" | "reactivated" | "churned";
+export type Label = "retained_top20" | "retained_rest" | "lapsing" | "new" | "reactivated" | "churned";
 export type Move = "up" | "down" | "neutral";
 
 /**
@@ -23,8 +25,8 @@ export type Move = "up" | "down" | "neutral";
  * its lifecycle (a churned or new clinic can be on it: the list is by revenue, the label by lifecycle). Snapshots built
  * before 2026-11-16 are all lower case; there only "t" says the clinic is on the list.
  */
-const CODE: Record<Label, string> = { retained_top20: "t", retained_rest: "r", new: "n", reactivated: "a", churned: "c" };
-const DECODE: Record<string, Label> = { t: "retained_top20", r: "retained_rest", n: "new", a: "reactivated", c: "churned" };
+const CODE: Record<Label, string> = { retained_top20: "t", retained_rest: "r", lapsing: "l", new: "n", reactivated: "a", churned: "c" };
+const DECODE: Record<string, Label> = { t: "retained_top20", r: "retained_rest", l: "lapsing", n: "new", a: "reactivated", c: "churned" };
 export const encodeLabel = (l: Label, onList = l === "retained_top20") => (onList ? CODE[l].toUpperCase() : CODE[l]);
 export const decodeLabel = (c: string | undefined): Label | undefined => (c ? DECODE[c.toLowerCase()] : undefined);
 /** Whether a stored code says the clinic is on that month's Top 20% list. */
@@ -96,11 +98,25 @@ export function tierLists(monthRev: Map<string, Map<string, number>>, listMonths
   return out;
 }
 
-/** Lifecycle + list membership -> one label. */
-export function labelOf(lc: { isNew: boolean; life: string }, onList: boolean): Label {
+/**
+ * Lapsing (2026-11-20): an active, established clinic that is late against its own order rhythm as of `cutoff`: at least
+ * 5 days since the last order and business days since it past the clinic's late line (analytics/atRisk.ts isLateByRhythm).
+ * Needs 3+ order dates (a rhythm). It is the At-risk test without the shortfall-against-baseline gate, so At-risk is a subset.
+ */
+export function lapsingAt(orderDates: readonly string[], cutoff: string): boolean {
+  let last = "";
+  for (const d of orderDates) if (d && d <= cutoff && d > last) last = d;
+  if (!last || diffDays(last, cutoff) < AT_RISK.minDays) return false;
+  const r = buyingRhythm(orderDates, cutoff);
+  return !!r && isLateByRhythm(r.medianGapBd, buyingGapP90(orderDates, cutoff), r.bdSinceLastOrder);
+}
+
+/** Lifecycle + list membership (+ lateness) -> one label. A lapsing clinic leaves Top 20% / Rest; `onList` still marks the list. */
+export function labelOf(lc: { isNew: boolean; life: string }, onList: boolean, lapsing = false): Label {
   if (lc.life === "churned") return "churned";
   if (lc.life === "reactivated") return "reactivated";
   if (lc.isNew) return "new";
+  if (lapsing) return "lapsing";
   return onList ? "retained_top20" : "retained_rest";
 }
 
@@ -141,7 +157,8 @@ export function labelsFor(
     if (!inp.firstOrder || inp.firstOrder > date) continue;
     const lc = classifyClinic({ ...inp, cutoff: date });
     const onList = lists.get(listMonthOf(date))?.top.has(inp.clinic) ?? false;
-    out[date] = encodeLabel(labelOf(lc, onList), onList);
+    const lapsing = lc.life === "active" && !lc.isNew && lapsingAt(inp.orderDates, date);
+    out[date] = encodeLabel(labelOf(lc, onList, lapsing), onList);
   }
   return out;
 }
@@ -298,5 +315,5 @@ export function moveOf(before: Label | undefined, now: Label | undefined): Move 
   if (before === "churned") return "up"; // back from churned (reactivated, or a new clinic ordering again)
   if (before === "retained_top20" && now === "retained_rest") return "down";
   if (before === "retained_rest" && now === "retained_top20") return "up";
-  return "neutral"; // e.g. new -> established, reactivated -> active
+  return "neutral"; // e.g. new -> established, reactivated -> active, and to or from Lapsing (a warning, not a move)
 }

@@ -22,6 +22,8 @@ export function onCallFirstTag(tag: string, clinic: string, health: readonly str
 }
 
 /** The at-risk clinics that are in the scorecard's Active top 20% group. */
-export function topCohortAtRisk(rows: ReadonlyArray<{ clinic: string; cohort: string }>, atRisk: ReadonlySet<string>): Set<string> {
-  return new Set(rows.filter(r => r.cohort === TOP20_COHORT && atRisk.has(r.clinic)).map(r => r.clinic));
+export function topCohortAtRisk(rows: ReadonlyArray<{ clinic: string; cohort: string; onList?: boolean }>, atRisk: ReadonlySet<string>): Set<string> {
+  // A Lapsing clinic is no longer in the retained_top20 cohort (it is late), but one on the company list is still a top clinic: nearly every
+  // at-risk top clinic is Lapsing, so without `onList` the chip would be empty.
+  return new Set(rows.filter(r => (r.cohort === TOP20_COHORT || (r.cohort === "lapsing" && r.onList)) && atRisk.has(r.clinic)).map(r => r.clinic));
 }

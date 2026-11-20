@@ -12,8 +12,8 @@
  * headline delta. `calibrate` scales every cohort's expected by one factor so that the rows sum to the headline
  * exactly, and returns that factor so the UI can say so.
  */
-/** Active shows three tiers: New (new clinics still ordering), the largest 20% and everyone else (2026-10-18). */
-export const ACTIVE_COHORTS = ["new", "retained_top20", "retained_rest"] as const;
+/** Active shows four tiers: New (new clinics still ordering), the largest 20%, everyone else (2026-10-18) and Lapsing: active clinics late against their own order rhythm (2026-11-20). */
+export const ACTIVE_COHORTS = ["new", "retained_top20", "retained_rest", "lapsing"] as const;
 
 export type CohortAgg = { cohort: string; actual: number; expected: number; clinics: number };
 export type CohortCal = CohortAgg & { delta: number };

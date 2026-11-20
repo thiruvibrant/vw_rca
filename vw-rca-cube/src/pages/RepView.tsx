@@ -74,10 +74,11 @@ const COHORT: Record<string, string> = {
   new: "Active · new",
   retained_top20: "Active · top 20%",
   retained_rest: "Active · rest",
+  lapsing: "Active · lapsing",
   reactivated: "Reactivated",
 };
 /** Display order of the cohort labels in filters: biggest clinics first, churned last. */
-const COHORT_ORDER: Record<string, number> = { retained_top20: 0, retained_rest: 1, new: 2, reactivated: 3, churned: 4 };
+const COHORT_ORDER: Record<string, number> = { retained_top20: 0, retained_rest: 1, lapsing: 2, new: 3, reactivated: 4, churned: 5 };
 
 export type RepViewPeriod = { id: string; kind: string; label: string; start: string; end: string };
 
@@ -1288,7 +1289,8 @@ function WindowTab({
     if (!top || !rest) return cohorts.map(one);
     // Active has three tiers (2026-10-18): New (this year's clinics still ordering), the largest 20% and everyone else.
     const newC = cohorts.find((c: Book) => c.key === "new");
-    const parts = [newC, top, rest].filter(Boolean) as Book[];
+    const lapC = cohorts.find((c: Book) => c.key === "lapsing");
+    const parts = [newC, top, rest, lapC].filter(Boolean) as Book[];
     const tot = (f: (c: Book) => number) => parts.reduce((t, c) => t + f(c), 0);
     const merged: Book = {
       key: "active", clinics: tot(c => c.clinics), delta: tot(c => c.delta),
@@ -1300,9 +1302,10 @@ function WindowTab({
       ...(newC ? [tier(newC, "New", "this year's clinics still ordering")] : []),
       tier(top, "Largest 20%", "size tier of Active"),
       tier(rest, "Everyone else", "size tier of Active"),
+      ...(lapC ? [tier(lapC, "Lapsing", "late against their own order rhythm, not yet churned")] : []),
     ];
     const active = { l: `Active (${merged.clinics})`, v: merged.delta, real: tot(c => (c.real as number) ?? 0), amb: tot(c => (c.ambition as number) ?? 0), focus: "cohort:active", sub: "still ordering: new this year, or ordered in the baseline", cohortSplit: merged, tiers };
-    return [...cohorts.filter((c: Book) => c.key !== "retained_top20" && c.key !== "retained_rest" && c.key !== "new").map(one), active].sort((a, b) => a.v - b.v);
+    return [...cohorts.filter((c: Book) => c.key !== "retained_top20" && c.key !== "retained_rest" && c.key !== "new" && c.key !== "lapsing").map(one), active].sort((a, b) => a.v - b.v);
   })();
   const lensCardsBase: Array<{
     k: string;
@@ -3015,6 +3018,7 @@ function ClinicCardBody({ detail, periodId, winLabel }: { detail: Book; periodId
 const LABEL_FILL: Record<string, string> = {
   retained_top20: "var(--vw-blue)",
   retained_rest: "var(--vw-gray-20)",
+  lapsing: "var(--vw-warning-bg)",
   new: "var(--vw-success)",
   reactivated: "var(--vw-warning)",
   churned: "var(--vw-error)",
@@ -3049,6 +3053,8 @@ function Standing({ d, periodId }: { d: Book; periodId: string }) {
   const life =
     pastAt && (d.cohort === "retained_top20" || d.cohort === "retained_rest")
       ? `${asOf}ordering within its usual rhythm.`
+      : pastAt && d.cohort === "lapsing"
+      ? `${asOf}late against its own order rhythm (not yet at its churn line).`
       : d.cohort === "churned"
       ? since === null
         ? `${asOf}no order within its churn line of ${limit} days${gap ? ` (3× its usual ${gap}-day gap, at least 45)` : ""}.`
