@@ -34,13 +34,13 @@ Numbers are from the live snapshot (window Aug 1 to Oct 17, baseline Feb 20 to M
 - In the lifecycle tree, active new clinics sit under **Active** as a tier named "New", next to "Largest 20%" and "Everyone else". Silent new clinics are Churned; reactivated ones are Reactivated.
 
 ### The new-business goal (agreed: a Settings number)
-- The annual target (Settings, $130M today) is split into an **existing-business goal** and a **new-business goal**. The new-business goal is a **number in Settings**.
+- The annual target (Settings; $120M from 2026-11-20, was $130M; `analytics/targets.ts` when Settings has none) is split into an **existing-business goal** and a **new-business goal**. The new-business goal is a **number in Settings**.
 - **Existing clinics** keep goal = baseline x a factor. The factor is now (target minus the new-business goal) divided by the older clinics' baseline pace. The baseline period is fixed, so goals stay stable (no drift).
 - **New clinics** get a goal as a group, not one by one. The New Business dial shows a real goal instead of "—", and New + Existing adds up to Combined for goal, heading and plan.
 - Company goal still equals the target exactly.
 - Settings warns when the new-business number is so large that existing goals fall below their baseline.
 - **Decided 2026-10-18 (updated later the same day):**
-  - The new-business goal defaults to **last year's new-clinic revenue** (revenue in 2025 from clinics that first ordered in 2025, including ones that have since churned): **$9.48M**, 7.3% of the $130M target. It is still a Settings number and can be overridden. (It started as 5% of the target, $6.5M; that was 31% below last year and made new business look far ahead.)
+  - The new-business goal defaults to **last year's new-clinic revenue** (revenue in 2025 from clinics that first ordered in 2025, including ones that have since churned): **$9.48M**, 7.9% of the $120M target (7.3% of the earlier $130M). It is still a Settings number and can be overridden. (It started as 5% of the target, $6.5M; that was 31% below last year and made new business look far ahead.)
   - It is **phased by last year's monthly shape** of that revenue (3.2% of the year in January up to 13.2% in October, 10.7% and 10.9% in November and December), spread evenly within a month, instead of evenly through the year.
   - **Reps share it by their existing baseline share** (how goals already split).
   - It **stays at rep and company level**: no goal on individual new clinics (a lump split across clinics that join through the year would dilute every time one joins). New clinic lists show revenue and status, not above/below goal.

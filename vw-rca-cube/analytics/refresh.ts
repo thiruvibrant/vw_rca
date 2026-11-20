@@ -1,6 +1,7 @@
 "use node";
 
 import { v } from "convex/values";
+import { DEFAULT_ANNUAL_TARGET } from "./targets";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { internalAction } from "./_generated/server";
@@ -2032,7 +2033,7 @@ export const refreshData = internalAction({
       }
       // Top-down allocation [Shyam, 2026-10-12]: overall → geo → rep×geo;
       // reps/leads are sums of their cells. Clinic P75 stays unscaled.
-      const td = topDownAllocate({ defs, planOf, days: allClinicDays, identity, rates: clinicMeta.map(m => ({ clinic: m.clinic, rev: m.rev, ord: m.ord })), companyDaily: daily, target: { annual: cfg.annualTarget ?? 130_000_000, year: Number(currentEnd.slice(0, 4)), newSlice: (cfg as { newBusinessGoal?: number }).newBusinessGoal ?? (priorNewTotal || 0.05 * (cfg.annualTarget ?? 130_000_000)), newPhasing, newDefaultSlice: priorNewTotal || undefined, weights: goalWeights(new Map((await pGoalLy).map(r => [dateOf(r, "order_date"), num(r, "rev")] as const)), goalYear) } });
+      const td = topDownAllocate({ defs, planOf, days: allClinicDays, identity, rates: clinicMeta.map(m => ({ clinic: m.clinic, rev: m.rev, ord: m.ord })), companyDaily: daily, target: { annual: cfg.annualTarget ?? DEFAULT_ANNUAL_TARGET, year: Number(currentEnd.slice(0, 4)), newSlice: (cfg as { newBusinessGoal?: number }).newBusinessGoal ?? (priorNewTotal || 0.05 * (cfg.annualTarget ?? DEFAULT_ANNUAL_TARGET)), newPhasing, newDefaultSlice: priorNewTotal || undefined, weights: goalWeights(new Map((await pGoalLy).map(r => [dateOf(r, "order_date"), num(r, "rev")] as const)), goalYear) } });
       const leadPeriodBaseline = td.lead;
       const salesPeriodBaseline = td.sales;
       // Clinic expectations are no longer scaled to reps: every clinic's goal is its baseline x the period goal factor (baseline.ts).
@@ -4105,7 +4106,7 @@ export const refreshSnapshot = internalAction({
       }
       // Top-down allocation [Shyam, 2026-10-12]: overall → geo → rep×geo;
       // reps/leads are sums of their cells. Clinic P75 stays unscaled.
-      const td = topDownAllocate({ defs, planOf, days: allClinicDays, identity, rates: clinicMeta.map(m => ({ clinic: m.clinic, rev: m.rev, ord: m.ord })), companyDaily: daily, target: { annual: cfg.annualTarget ?? 130_000_000, year: Number(currentEnd.slice(0, 4)), newSlice: (cfg as { newBusinessGoal?: number }).newBusinessGoal ?? (priorNewTotal || 0.05 * (cfg.annualTarget ?? 130_000_000)), newPhasing, newDefaultSlice: priorNewTotal || undefined, weights: goalWeights(new Map((await pGoalLy).map(r => [dateOf(r, "order_date"), num(r, "rev")] as const)), goalYear) } });
+      const td = topDownAllocate({ defs, planOf, days: allClinicDays, identity, rates: clinicMeta.map(m => ({ clinic: m.clinic, rev: m.rev, ord: m.ord })), companyDaily: daily, target: { annual: cfg.annualTarget ?? DEFAULT_ANNUAL_TARGET, year: Number(currentEnd.slice(0, 4)), newSlice: (cfg as { newBusinessGoal?: number }).newBusinessGoal ?? (priorNewTotal || 0.05 * (cfg.annualTarget ?? DEFAULT_ANNUAL_TARGET)), newPhasing, newDefaultSlice: priorNewTotal || undefined, weights: goalWeights(new Map((await pGoalLy).map(r => [dateOf(r, "order_date"), num(r, "rev")] as const)), goalYear) } });
       const leadPeriodBaseline = td.lead;
       const salesPeriodBaseline = td.sales;
       // Clinic expectations are no longer scaled to reps: every clinic's goal is its baseline x the period goal factor (baseline.ts).

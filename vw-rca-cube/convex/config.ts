@@ -18,7 +18,7 @@ export const DEFAULTS = {
   autoBaseline: true,
   autoEnd: true,
   baselineMode: "p75",
-  annualTarget: 130_000_000,
+  annualTarget: 120_000_000, // = analytics/targets.ts DEFAULT_ANNUAL_TARGET ($120M from 2026-11-20)
   gen: 0,
 };
 

@@ -1,4 +1,5 @@
 import { loadCfg } from "./config";
+import { DEFAULT_ANNUAL_TARGET } from "./targets";
 import { v } from "convex/values";
 import { dow, monthKey } from "./dateUtils";
 import { scopedQuery } from "./gated";
@@ -117,7 +118,7 @@ export const summary = scopedQuery({
       ytdRevenue = scopeYtdRev;
       ytdOrders = scopeYtdOrd;
     }
-    const target = (cfg.annualTarget ?? 130_000_000) * share;
+    const target = (cfg.annualTarget ?? DEFAULT_ANNUAL_TARGET) * share;
 
     const projectedRemaining =
       proj.days.reduce((s, d) => s + d.rev, 0) * share;

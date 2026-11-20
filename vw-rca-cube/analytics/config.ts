@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { DEFAULT_ANNUAL_TARGET } from "./targets";
 import {
   internalMutation,
   internalQuery,
@@ -18,7 +19,7 @@ export const DEFAULTS = {
   autoBaseline: true,
   autoEnd: true,
   baselineMode: "p75",
-  annualTarget: 130_000_000,
+  annualTarget: DEFAULT_ANNUAL_TARGET,
   gen: 0,
 };
 

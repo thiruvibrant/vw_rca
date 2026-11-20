@@ -33,7 +33,7 @@ npx convex env set ADMIN_PASSWORD_SHA256     "$(echo -n 'a-test-admin-password' 
 ```
 The engine needs this deployment's admin key to read your settings every minute. Get it from the Convex dashboard for your dev deployment (Settings, URL & Deploy Key). For a fully local Convex, run `CONVEX_AGENT_MODE=anonymous npx convex dev` instead and read the key from `.convex/local/default/config.json`.
 
-A new Convex starts with a built-in window and a $130M target, so your numbers will not match production until you set your own in Settings (it asks for the admin password above).
+A new Convex starts with a built-in window and a $120M target (`analytics/targets.ts`), so your numbers will not match production until you set your own in Settings (it asks for the admin password above).
 
 ## 2. Your own engine and snapshot
 

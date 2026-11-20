@@ -1,4 +1,5 @@
 import { Logo } from "@/components/Logo";
+import { DEFAULT_ANNUAL_TARGET } from "../../analytics/targets";
 import { useMutation, useQuery } from "convex/react";
 import { useRcaQuery, useRcaAction } from "@/lib/rca";
 import { GeoMap, GeoRsmTable, type GeoRow } from "./GeoMap";
@@ -1780,7 +1781,7 @@ export function RcaDashboardPage() {
                         targetDraft ??
                         String(
                           (cfg as { annualTarget?: number }).annualTarget ??
-                            130000000,
+                            DEFAULT_ANNUAL_TARGET,
                         )
                       }
                       onChange={e => {
@@ -1799,7 +1800,7 @@ export function RcaDashboardPage() {
                         newGoalDraft ??
                         String(
                           (cfg as { newBusinessGoal?: number }).newBusinessGoal ??
-                            Math.round((cfg as { newGoalDefault?: number | null }).newGoalDefault ?? 0.05 * ((cfg as { annualTarget?: number }).annualTarget ?? 130000000)),
+                            Math.round((cfg as { newGoalDefault?: number | null }).newGoalDefault ?? 0.05 * ((cfg as { annualTarget?: number }).annualTarget ?? DEFAULT_ANNUAL_TARGET)),
                         )
                       }
                       onChange={e => {
@@ -1828,7 +1829,7 @@ export function RcaDashboardPage() {
                     className="rca-btn"
                     disabled={targetDraft === null && newGoalDraft === null && bundleDraft === null}
                     onClick={async () => {
-                      const n = Number(targetDraft ?? (cfg as { annualTarget?: number }).annualTarget ?? 130000000);
+                      const n = Number(targetDraft ?? (cfg as { annualTarget?: number }).annualTarget ?? DEFAULT_ANNUAL_TARGET);
                       if (!Number.isFinite(n) || n <= 0) return;
                       const g = newGoalDraft === null ? undefined : Number(newGoalDraft);
                       if (g !== undefined && (!Number.isFinite(g) || g < 0 || g > n)) return;
@@ -1880,7 +1881,7 @@ export function RcaDashboardPage() {
                 ) : null}
                 {(() => {
                   const base = (cfg as { yearBaseline?: number | null }).yearBaseline;
-                  const t = Number(targetDraft ?? (cfg as { annualTarget?: number }).annualTarget ?? 130000000);
+                  const t = Number(targetDraft ?? (cfg as { annualTarget?: number }).annualTarget ?? DEFAULT_ANNUAL_TARGET);
                   const ng = Number(newGoalDraft ?? (cfg as { newBusinessGoal?: number }).newBusinessGoal ?? (cfg as { newGoalDefault?: number | null }).newGoalDefault ?? 0.05 * t);
                   if (base && t - ng < base)
                     return (

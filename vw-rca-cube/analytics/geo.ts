@@ -1,4 +1,5 @@
 import { newGoalFor, targetScale } from "./baseline";
+import { DEFAULT_ANNUAL_TARGET } from "./targets";
 import { loadCfg } from "./config";
 import { calibrate } from "./lifecycle";
 import { v } from "convex/values";
@@ -76,7 +77,7 @@ export const geoSummary = scopedQuery({
     // over a different set of clinics.
     const cfg = await loadCfg(ctx);
     const gen = cfg?.gen ?? 0;
-    const annualTarget = cfg?.annualTarget ?? 130_000_000;
+    const annualTarget = cfg?.annualTarget ?? DEFAULT_ANNUAL_TARGET;
     const proj = await ctx.db
       .query("projection")
       .withIndex("by_gen", q => q.eq("gen", gen))

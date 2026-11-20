@@ -5,7 +5,7 @@
 
 ## Why
 - The dashboard and the emails use different baselines and goals, so leadership sees two different numbers for the same week.
-- The $130M target doesn't change any dashboard goal today: the goal is held at the baseline.
+- The annual target ($120M from 2026-11-20, was $130M) didn't change any dashboard goal before this redesign: the goal was held at the baseline.
 - Holidays are ignored by the dashboard and handled differently in the emails.
 
 ## The three terms
@@ -37,7 +37,7 @@ There is no separate benchmark. The emails' "median of the best N periods" is re
 
 ## 2. Goal
 
-1. **Company daily goal.** The annual target (2026: **$130M**, set by leadership in Settings) is spread over the year's days in **last year's daily pattern**. The daily goals add up to exactly the target.
+1. **Company daily goal.** The annual target (2026: **$120M** from 2026-11-20, was $130M; set by leadership in Settings, `analytics/targets.ts` when none is saved) is spread over the year's days in **last year's daily pattern**. The daily goals add up to exactly the target.
 2. **How each day's weight is set.** Each day = last year's **normal level** for that weekday at that time of year × this year's **calendar effect** for that day.
    - **Normal level:** the median of last year's same weekday in the four nearest weeks (2 before, 2 after the day 364 days earlier), leaving out holidays and catch-up days. A median of 4 nearby normal days is steady even when one neighbour was unusual.
    - **Calendar effect:** 1.0 on a normal day. On a weekday holiday, the holiday's measured factor from `holidays.csv` (for example Thanksgiving 0.07, the day after 0.27, Christmas 0.03).
@@ -65,7 +65,7 @@ These are before the holiday and outlier rules (sections 1.2, 1.4 and 2.2).
 | | Dashboard today | Emails today | This definition |
 |---|---|---|---|
 | Baseline | $10.21M (Jan 30 – Apr 30 pace) | $10.47M (median of the best 4 months) | **$10.25M** (Feb 20 – May 21 pace) |
-| Goal | $10.21M + new-business slice; the $130M has no effect | $10.10M ($130M × Nov 2025's 7.77% share of 2025) | **$10.10M**, before the new-business slice |
+| Goal | $10.21M + new-business slice; the target has no effect | $9.32M ($120M × Nov 2025's 7.77% share of 2025; $10.10M at the earlier $130M) | **$9.32M**, before the new-business slice |
 
 Reference: Nov 2025 actual was $8.40M; Nov 1–8 2026 was $2.13M; the last 13 weeks ran at $9.30M a month.
 
@@ -137,7 +137,7 @@ Because shares come from the best window, a rep whose book has shrunk since Feb�
   - The new goal is split the same way.
 
 ## 7. Decisions needed before building
-1. The 2026 target: $130M, or a stretch number. Each extra $5M adds about 4% to every rep's goal.
+1. The 2026 target: **$120M** (decided 2026-11-20, was $130M). Each extra $5M adds about 4% to every rep's goal.
 2. Where the rep split comes from: the best-window share (as written, so reps get −11% to +22% over their recent pace), or each rep's share of the **last 13 weeks** (every rep gets the same stretch, +8.6% in November). The company baseline and goal are the same either way.
 3. The outlier cap: 2× the weekday median (proposed), or another number.
 4. **Holiday season (found 2026-11-10).** Several weekdays between Christmas and New Year's Day are not listed but run well below a normal day:
