@@ -21,7 +21,7 @@ export type LaunchDef = { family: string; parent: string; /** Official launch da
 export const LAUNCHES: LaunchDef[] = [
   { family: "Nutrient Baseline", parent: "Nutrient Zoomer" },
   { family: "Foundation Baseline", parent: "Foundation Zoomer" },
-  { family: "Gut Baseline", parent: "Gut Zoomer" },
+  { family: "Gut Baseline", parent: "Gut Zoomer", date: "2026-11-09" }, // launch date confirmed by Thiru, 2026-11-24
   { family: "Hormone Baseline", parent: "Hormone Zoomer" },
   { family: "Cardio Baseline", parent: "Cardio Zoomer" },
 ];
