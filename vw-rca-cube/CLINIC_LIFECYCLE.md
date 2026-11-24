@@ -283,3 +283,17 @@ Proposal with the data behind it: "Proposal: one definition of Top 20% clinics" 
   the clinic card's Standing, the history strip, and the Cohort movement table's labels.
 - **Open for Shyam:** whether Lapsing should shrink Top 20% / Rest this way (an Active · top 20% clinic that is late now shows as
   Lapsing), and the 5-day and 1.5 x gap settings, which are the at-risk card's.
+
+## 24. New product launches (2026-11-24, Thiru's dev branch)
+- **Where:** "Product launches" on the overview and in the rep view (`src/pages/LaunchTracker.tsx`); engine: `analytics/launchModel.ts` (pure,
+  `scripts/launch-tracker.test.ts`), `analytics/launchTracker.ts` (`build` after each daily rebuild, `summary`), snapshot table `launchTracker`.
+- **Method:** launches aligned by age (week 1 = first 7 days from the launch date); measure = family orders per 100 company orders, so the
+  season cancels; weeks holding a day with a holiday factor under 0.5 (`analytics/holidays.csv`) are not scored, for launches and references;
+  references' p25 / median / p75 per age form the band (2+ references needed); rated after 3 scored weeks and 30 orders, on the last 2 scored weeks
+  (ahead above the band, behind below it, else on track); trend = last 2 scored weeks vs the 2 before; past 98 days a product is "mature".
+- **Dollars:** the family's revenue (order revenue split across the families in it), the run rate of the last 2 scored weeks, and what the
+  reference median attach rate at weeks 8-13 would bring a week at today's normal company volume. Focus rank = the larger of that and the run rate.
+- **Launch date:** the first date with an order and 3+ orders in its first 7 days, unless `LAUNCHES[].date` is set (leadership date).
+- **Needs leadership:** launch date, eligible clinics (parent Zoomer buyers in the 12 months before), a week-13 goal, replacement of the parent.
+- **Caveat:** an order with several families counts in each; the dashboard's family orders are higher than BigQuery sample counts
+  (Foundation Baseline week 7: 51 vs 20), so compare on the dashboard's definition only.

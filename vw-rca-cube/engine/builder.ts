@@ -73,7 +73,7 @@ export async function buildSnapshot(
   if (mode !== "daily" && liveDir && fs.existsSync(path.join(liveDir, "config"))) {
     db.load("config", loadExport(liveDir, ["config"]).dump().config.filter(r => r.key === "main"));
   }
-  const host = new Host(db, ["ingest", "config", "insights", "refresh", "familyLaunch", "familyStops", "gzLapsed", "families", "fzScores", "momentum"], ["query", "mutation", "action"]);
+  const host = new Host(db, ["ingest", "config", "insights", "refresh", "familyLaunch", "familyStops", "gzLapsed", "families", "fzScores", "momentum", "launchTracker"], ["query", "mutation", "action"]);
   await host.ready;
   const t0 = Date.now();
   if (mode === "daily") {
@@ -93,6 +93,12 @@ export async function buildSnapshot(
       await host.invoke("familyLaunch:build", { end: (result as { dataThrough?: string } | null)?.dataThrough });
     } catch (e) {
       console.error("family launch dates failed:", String(e).slice(0, 200));
+    }
+    // New product launches scored against earlier launches by attach rate (analytics/launchTracker.ts). Best effort: without it the tile is hidden.
+    try {
+      console.log("launch tracker:", JSON.stringify(await host.invoke("launchTracker:build", { end: (result as { dataThrough?: string } | null)?.dataThrough })));
+    } catch (e) {
+      console.error("launch tracker failed:", String(e).slice(0, 200));
     }
     // Gut Zoomer / Total Tox stopped clinics. refresh.ts schedules this, but the engine's scheduler does nothing, so it is run here.
     try {

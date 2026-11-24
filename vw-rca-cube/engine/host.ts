@@ -41,6 +41,7 @@ export const SERVED_MODULES = [
   "fzScores",
   "momentum",
   "cohortFlow",
+  "launchTracker",
 ];
 
 /** Individual functions served from otherwise internal modules (the admin rep dropdown reads names from the snapshot). */

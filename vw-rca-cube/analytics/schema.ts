@@ -700,6 +700,20 @@ const schema = defineSchema({
     orders: v.number(),
   }).index("by_family", ["family"]),
 
+  // New product launches (2026-11-24, analytics/launchTracker.ts): daily orders and revenue per tracked family and the company's
+  // daily orders (kind "company"), with the clinics that tried each launch. Rebuilt with each daily snapshot.
+  launchTracker: defineTable({
+    family: v.string(),
+    kind: v.string(), // launch | reference | company
+    parent: v.optional(v.string()),
+    launch: v.optional(v.string()),
+    leadership: v.optional(v.boolean()),
+    days: v.array(v.object({ d: v.string(), o: v.number(), r: v.number() })),
+    tried: v.optional(v.number()),
+    hadParent: v.optional(v.number()),
+    eligible: v.optional(v.number()),
+  }).index("by_family", ["family"]),
+
   // Clinics still ordering a family but below what their baseline expects, or flagged DECLINING (same rule as the scorecard's
   // product lists), rebuilt with familyStops after each refresh (analytics/familyStops.ts).
   familyDecline: defineTable({

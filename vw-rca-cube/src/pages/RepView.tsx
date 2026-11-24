@@ -9,6 +9,7 @@ const SHOW_SANKEY = true;
 import { Logo } from "@/components/Logo";
 import { ScorecardGuide, guideIdFor, guideNav, openGuide } from "./ScorecardGuide";
 import { CohortFlow } from "./CohortFlow";
+import { LaunchTracker } from "./LaunchTracker";
 import { useMutation, useQuery } from "convex/react";
 import { useRcaQuery, useRcaAction } from "@/lib/rca";
 import React, { Fragment, startTransition, useEffect, useMemo, useState, useRef, useSyncExternalStore } from "react";
@@ -1444,6 +1445,7 @@ function WindowTab({
         <p><b>Touch line:</b> of existing, new and returning clinics you touched (call or meeting) in the last N days, the share that ordered on or after the touch. N follows the "Order within" choice in Touch effort (14 on any time).</p>
       </HowCalc>
       <ScorecardInWindow b={b} sales={sales} periodId={periodId} periodLabel={periodLabel} prev={prev} focus={scFocus} fam={scFam} />
+      <LaunchTracker />
       <CohortFlow sales={sales} scopeLabel={sales.startsWith("team:") ? (sales === "team:*" ? "Company-wide" : `${sales.slice(5)}'s team`) : `${sales}'s clinics`} />
 
       <div className="rv-sec-head">
