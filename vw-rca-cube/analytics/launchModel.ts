@@ -15,19 +15,11 @@ import { addDays, diffDays } from "./dateUtils";
 import { HOLIDAYS } from "./goalCurve";
 
 export type Day = { d: string; o: number; r: number };
-export type LaunchKind = "launch" | "relaunch";
-export type LaunchDef = {
-  family: string;
-  parent: string;
-  /** Official launch date from leadership; absent = worked out from the orders. Orders dated earlier (a system issue put a few in) are ignored. */
-  date?: string;
-  /** relaunch: an existing product changed (e.g. markers added). It keeps its own history, so it is judged against its own range before `date`, not against earlier launches. */
-  kind?: LaunchKind;
-};
+export type LaunchDef = { family: string; parent: string; /** Official launch date from leadership; absent = worked out from the orders. */ date?: string };
 
 /** The Baselines being tracked, with the Zoomer each one is a lighter version of. Leadership dates go in `date` once confirmed. */
 export const LAUNCHES: LaunchDef[] = [
-  { family: "Nutrient Baseline", parent: "Nutrient Zoomer", date: "2026-11-09", kind: "relaunch" }, // relaunched with added markers (Thiru, 2026-11-25)
+  { family: "Nutrient Baseline", parent: "Nutrient Zoomer" },
   { family: "Foundation Baseline", parent: "Foundation Zoomer" },
   { family: "Gut Baseline", parent: "Gut Zoomer", date: "2026-11-09" }, // launch date confirmed by Thiru, 2026-11-24
   { family: "Hormone Baseline", parent: "Hormone Zoomer" },
@@ -193,17 +185,3 @@ export function normalCompanyWeek(company: ReadonlyMap<string, number>, asOf: st
   }
   return out.length ? percentile(out, 0.5) : 0;
 }
-
-/**
- * A relaunch (an existing product changed) already has history, so it gets a baseline of its own: the range of its attach rate over its
- * last `weeks` scored weeks before the relaunch (needs `minWeeks`). `before` = weeks from its first launch up to the day before the relaunch.
- */
-export function ownBand(before: readonly Week[], weeks = 13, minWeeks = 6): { p25: number; median: number; p75: number; weeks: number } | null {
-  const xs = scoredWeeks(before).slice(-weeks).map(w => w.attach);
-  if (xs.length < minWeeks) return null;
-  return { p25: percentile(xs, 0.25), median: percentile(xs, 0.5), p75: percentile(xs, 0.75), weeks: xs.length };
-}
-
-/** The same own range at every launch age, so statusOf and dollarsOf can read it like a reference band. */
-export const flatBand = (b: { p25: number; median: number; p75: number } | null, maxWeek: number): Array<Band | null> =>
-  Array.from({ length: maxWeek }, (_, i) => (b ? { n: i + 1, p25: b.p25, median: b.median, p75: b.p75, refs: 0 } : null));

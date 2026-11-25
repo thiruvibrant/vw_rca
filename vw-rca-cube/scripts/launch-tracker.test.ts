@@ -3,7 +3,7 @@
 //   node --import tsx scripts/launch-tracker.test.ts
 import assert from "node:assert/strict";
 import { addDays } from "../analytics/dateUtils";
-import { dollarsOf, flatBand, holidayWeek, launchDateOf, launchWeeks, normalCompanyWeek, ownBand, percentile, referenceBand, scoredWeeks, statusOf, trendOf, type Day } from "../analytics/launchModel";
+import { dollarsOf, holidayWeek, launchDateOf, launchWeeks, normalCompanyWeek, percentile, referenceBand, scoredWeeks, statusOf, trendOf, type Day } from "../analytics/launchModel";
 
 let n = 0;
 const test = (name: string, fn: () => void) => {
@@ -124,22 +124,6 @@ test("dollars: revenue so far, run rate of the last 2 scored weeks, potential at
   const above = dollarsOf(launchWeeks(series("2026-08-03", [60, 60, 60, 60]), co, "2026-08-03", "2026-08-30"), band, normal);
   assert.equal(above.upside, 0);
   assert.equal(dollarsOf(w, band.map(() => null), normal).potential, null);
-});
-
-test("relaunch: judged against its own range before the relaunch, not against earlier launches", () => {
-  const co = company("2025-01-01", "2026-12-31", 600);
-  // 12 weeks at ~25 orders (0.6 per 100 company orders), relaunched on 2026-04-27, then 40 a week.
-  const before = lw("2026-02-02", [25, 24, 26, 25, 25, 24, 26, 25, 25, 24, 26, 25], co);
-  const own = ownBand(before)!;
-  assert.equal(own.weeks, 12);
-  assert.ok(own.median > 0.55 && own.median < 0.65);
-  assert.equal(ownBand(before.slice(0, 4)), null); // under 6 scored weeks: no own range
-  const days = [...series("2026-02-02", [25, 24, 26, 25, 25, 24, 26, 25, 25, 24, 26, 25]), ...series("2026-04-27", [40, 40, 40, 40])];
-  const after = launchWeeks(days, co, "2026-04-27", "2026-05-24");
-  const band = flatBand(own, 14);
-  assert.equal(statusOf(after, band, "2026-05-24", "2026-04-27"), "ahead"); // 40 vs about 25 a week
-  assert.equal(statusOf(after.slice(0, 2), band, "2026-05-10", "2026-04-27"), "too-early"); // still needs 3 scored weeks
-  assert.equal(statusOf(launchWeeks(series("2026-04-27", [25, 25, 25, 25]), co, "2026-04-27", "2026-05-24"), band, "2026-05-24", "2026-04-27"), "on-track");
 });
 
 console.log(`${n} checks passed`);

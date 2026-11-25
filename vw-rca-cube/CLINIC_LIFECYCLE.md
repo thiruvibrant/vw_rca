@@ -297,15 +297,3 @@ Proposal with the data behind it: "Proposal: one definition of Top 20% clinics" 
 - **Needs leadership:** launch date, eligible clinics (parent Zoomer buyers in the 12 months before), a week-13 goal, replacement of the parent.
 - **Caveat:** an order with several families counts in each; the dashboard's family orders are higher than BigQuery sample counts
   (Foundation Baseline week 7: 51 vs 20), so compare on the dashboard's definition only.
-
-## 25. Official launch dates and relaunches (2026-11-25, Thiru's dev branch)
-- **One registry:** `LAUNCHES` in `analytics/launchModel.ts` holds each product's official launch date. It drives both the report's "New
-  product releases" flag (`familyLaunch.launches`: `firstOrder` becomes the official date, `isNew` = within 60 days) and the launch tracker.
-  The data's first order is no longer used for those families (a system issue put a stray Gut Baseline order on Sep 17; Gut Baseline counts
-  from Nov 9 and that order is ignored and noted on its card).
-- **Relaunch** (`kind: "relaunch"`): an existing product whose test changed (Nutrient Baseline, added markers, Nov 9). It counts as a
-  release from the relaunch date (no expected-orders colour: the old baseline is a different test) and the tracker judges it against its
-  own range (p25 / median / p75 of attach rate over its last 13 scored weeks before the relaunch, 6+ needed), not earlier launches. It stays
-  a reference for other launches from its first launch date.
-- **Adding a launch or relaunch:** one line in `LAUNCHES` (family, parent Zoomer, date, kind). Rebuild the engine.
-- **Orders post late:** recent weeks can be revised up as orders post (Gut Baseline's first week went from 24 to 31 orders between Nov 23 and Nov 24).
