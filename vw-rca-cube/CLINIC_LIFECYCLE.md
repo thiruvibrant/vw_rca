@@ -329,6 +329,13 @@ Proposal with the data behind it: "Proposal: one definition of Top 20% clinics" 
 - **On screen:** a badge on the family tile ("2.0 relaunched Nov 9", "+ Male version Nov 9", "new Aug 24", last 120 days); the trend chart
   (overview) and the scoped family (rep view) show weekly orders stacked by version with a marker at each start and one line per start.
   The overview's new-releases group is now "New & relaunched".
+- **Overview (2026-11-25):** the Product launches panel is no longer on the overview (it stays in the rep view). Clicking a family tile, new
+  or established, opens its weekly and monthly trend and scopes the dials and scorecard to it. The chart has a status pill: **Ahead / On
+  track / Behind / Too early** for a tracked launch or relaunch (launch tracker: against earlier launches at the same age, or its own range
+  for a relaunch), for another recent start (its own read), or **Ahead of / On / Behind its trend** for an established family
+  (`healthOf`: the last 2 full non-holiday weeks of orders per 100 company orders against its own 13 weeks before; 8 scored weeks and 50
+  orders needed). A blinking dot marks a new or relaunched product (last 60 days); a red "behind trend" tag marks an established family
+  below its range. It is a comparison with earlier launches and with the family's own range, not a statistical forecast.
 - **This year (BigQuery, data through Nov 24):** Nutrient Baseline 2.0 relaunch Nov 9 (old version ~21 a week, then 49 and 32: +104% on
   attach so far, too early to rate); Foundation Zoomer 2.0 relaunch Sep 28 (a clean swap, flat, +7%); Foundation Zoomer Male and Foundation
   Baseline Male variants Nov 9 (Foundation Zoomer total flat: Male took 35% of its orders); Gut Zoomer New York new Aug 24 (~20 a week).

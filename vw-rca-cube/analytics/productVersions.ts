@@ -17,7 +17,7 @@ import { addDays } from "./dateUtils";
 import { scopedQuery } from "./gated";
 import { type Day } from "./launchModel";
 import { dateOf, num } from "./powerbi";
-import { versionEvents, type Version } from "./versionModel";
+import { healthByBase, versionEvents, type Version } from "./versionModel";
 
 /** Days of history pulled: 180 days of events, 13 weeks before the earliest, and room so a long-running version never looks new. */
 const HISTORY_DAYS = 420;
@@ -84,6 +84,6 @@ export const summary = scopedQuery({
     const versions: Version[] = rows
       .filter(r => r.name !== COMPANY)
       .map(r => ({ name: r.name, base: r.base, days: r.days.filter(x => x.d <= asOf).map(x => ({ d: x.d, o: x.o, r: 0 }) as Day) }));
-    return { ready: true as const, asOf, bases: versionEvents(versions, company, asOf) };
+    return { ready: true as const, asOf, bases: versionEvents(versions, company, asOf), health: healthByBase(versions, company, asOf) };
   },
 });

@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { addDays } from "../analytics/dateUtils";
 import type { Day } from "../analytics/launchModel";
-import { kindOf, readOf, startOf, versionEvents, versionLabel, type Version } from "../analytics/versionModel";
+import { healthOf, kindOf, readOf, startOf, versionEvents, versionLabel, type Version } from "../analytics/versionModel";
 
 let n = 0;
 const test = (name: string, fn: () => void) => {
@@ -96,6 +96,18 @@ test("events: under 10 orders since the start is not a launch; an official date 
   assert.equal(ev.events[0].preOrders, 3);
   assert.equal(ev.events[0].kind, "new");
   assert.equal(ev.weekly.find(w => w.week === "2026-07-27")?.byVersion["Gut Zoomer New York"], undefined);
+});
+
+test("health: an established family whose last 2 full weeks fall below its own range is behind; above is ahead; a thin family is not read", () => {
+  // 20 weeks at ~60 orders a week (attach 1.4 per 100 on 600 a day), Mondays from 2026-07-06; the last 2 full weeks before Nov 22 change.
+  const mk = (tail: number) => series("2026-07-06", [...Array(18).fill(60), tail, tail]);
+  const asOfW = "2026-11-15"; // 19 full weeks from Jul 6 end Nov 15
+  const flat = healthOf("X", series("2026-07-06", Array(19).fill(60)), co, asOfW)!;
+  assert.equal(flat.status, "on-trend");
+  assert.equal(healthOf("X", mk(30), co, "2026-11-22")!.status, "behind");
+  assert.equal(healthOf("X", mk(95), co, "2026-11-22")!.status, "ahead");
+  assert.equal(healthOf("X", series("2026-07-06", Array(19).fill(2)), co, asOfW), null); // under 50 orders in the range
+  assert.equal(healthOf("X", series("2026-10-05", Array(6).fill(60)), co, "2026-11-15"), null); // under 8 scored weeks
 });
 
 console.log(`${n} checks passed`);

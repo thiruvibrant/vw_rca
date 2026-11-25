@@ -7,8 +7,7 @@ import { isFzFamily } from "@/lib/fzAgenda";
 import { cellDelta, ExecClinicList, type ExecSel, MiniMeter, ProviderRetentionFunnel, useExecScorecard, usePillarStatus } from "./RepView";
 import { overviewTourAvailable, startOverviewTour } from "@/lib/usertour";
 import { MomentumTile } from "./MomentumTile";
-import { LaunchTracker } from "./LaunchTracker";
-import { useVersions, VersionPanel, versionBadge, type VersionBase } from "./FamilyVersions";
+import { StatusBlock, tileMark, useVersions, VersionPanel, versionBadge, type VersionBase } from "./FamilyVersions";
 import "./exec.css";
 
 /** The slice of a bridge period this view reads. */
@@ -312,10 +311,10 @@ const dotTone = (dot: string) => (dot === GOOD ? "good" : dot === WARN ? "watch"
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
-function Kpi({ name, value, sub, color, dot, fill, onClick, on, trend, rule, tour, onChart, badge }: { badge?: string | null; onChart?: () => void; tour?: string; name: string; value: string; sub: string; color?: string; dot: string; fill?: string; onClick?: () => void; on?: boolean; trend?: Trend | null; rule?: boolean }) {
+function Kpi({ name, value, sub, color, dot, fill, onClick, on, trend, rule, tour, onChart, badge, mark }: { mark?: "blink" | "behind" | null; badge?: string | null; onChart?: () => void; tour?: string; name: string; value: string; sub: string; color?: string; dot: string; fill?: string; onClick?: () => void; on?: boolean; trend?: Trend | null; rule?: boolean }) {
   return (
     <div data-tour={tour} className={`ev-card ev-kpi ev-t-${fill ?? dotTone(dot)}${onClick ? " ev-click" : ""}${on ? " is-on" : ""}`} onClick={onClick} role={onClick ? "button" : undefined} tabIndex={onClick ? 0 : undefined} onKeyDown={onClick ? e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}>
-      <div className="top"><span>{name}{rule ? <em className="ev-rule">own rule</em> : null}</span><span className="ev-kpi-end">{onChart ? <button type="button" className="ev-chartbtn" title={`Trend of ${name} over the year`} aria-label={`Show the trend of ${name}`} data-tour="ov-trend-btn" onClick={e => { e.stopPropagation(); onChart(); }} onKeyDown={e => e.stopPropagation()}><LineChartIcon size={14} /></button> : null}<i className="dot" style={{ background: dot }} /></span></div>
+      <div className="top"><span>{mark === "blink" ? <i className="fv-blink" title="New or relaunched in the last 60 days" /> : null}{name}{mark === "behind" ? <em className="fv-behind" title="Its last 2 full weeks are below its own range over the 13 weeks before (season taken out)">behind trend</em> : null}{rule ? <em className="ev-rule">own rule</em> : null}</span><span className="ev-kpi-end">{onChart ? <button type="button" className="ev-chartbtn" title={`Trend of ${name} over the year`} aria-label={`Show the trend of ${name}`} data-tour="ov-trend-btn" onClick={e => { e.stopPropagation(); onChart(); }} onKeyDown={e => e.stopPropagation()}><LineChartIcon size={14} /></button> : null}<i className="dot" style={{ background: dot }} /></span></div>
       <div className="val" style={{ color: color ?? "var(--text-primary)" }}>{value}</div>
       <div className="sub">{sub}</div>
       {badge ? <span className="fv-badge" title="What changed inside this family: a new version, a relaunch or a new test (from the raw test names)">{badge}</span> : null}
@@ -327,7 +326,8 @@ function Kpi({ name, value, sub, color, dot, fill, onClick, on, trend, rule, tou
 type TrendData = { start: string; end: string; weeks: Array<{ k: string; start: string; end: string; partial: boolean }>; months: Array<{ k: string; start: string; end: string; partial: boolean }>; series: Record<string, { wOrd: number[]; wRev: number[]; mOrd: number[]; mRev: number[] }> };
 
 /** Orders of one product family per week or per month since the first of the year. It does not follow the period tabs. */
-function TrendDialog({ family, teamLead, onClose, versions }: { family: string; teamLead?: string; onClose: () => void; versions?: VersionBase }) {
+function TrendDialog({ family, teamLead, onClose, ver }: { family: string; teamLead?: string; onClose: () => void; ver: ReturnType<typeof useVersions> }) {
+  const versions: VersionBase | undefined = ver.byFamily.get(family);
   const run = useRcaAction(api.familyTrend.familyTrend);
   const [data, setData] = useState<TrendData | null>(null);
   const [err, setErr] = useState("");
@@ -370,6 +370,7 @@ function TrendDialog({ family, teamLead, onClose, versions }: { family: string; 
           </div>
           <button type="button" className="ev-modal-x" onClick={onClose} aria-label="Close">×</button>
         </div>
+        <StatusBlock family={family} v={ver} />
         <div className="ev-modal-tools">
           <div className="ev-seg">
             <button type="button" className={grain === "week" ? "is-on" : ""} onClick={() => setGrain("week")}>Weekly</button>
@@ -615,7 +616,6 @@ export function ExecutiveView({
       ) : null}
 
       <MomentumTile teamLead={teamLead || undefined} />
-      <LaunchTracker />
 
       {sc.ready ? (
         <section data-tour="ov-pillars">
@@ -776,7 +776,7 @@ export function ExecutiveView({
           <>
             <div className="ev-sechead">
               <div style={{ fontSize: 15, fontWeight: 500 }}>Product families</div>
-              <div className="ev-secsub">Orders against the {refName}, by family. Click one to scope the dials and scorecard to it.</div>
+              <div className="ev-secsub">Orders against the {refName}, by family. Click one for its weekly and monthly trend and whether it is ahead or behind; it also scopes the dials and scorecard to it. A blinking dot is a new or relaunched product; "behind trend" is a family below its own range.</div>
             </div>
             <div className="ev-fams">
               {sc.families.filter(x => !x.isNew).map(x => {
@@ -788,10 +788,11 @@ export function ExecutiveView({
                   <Kpi
                     key={x.family}
                     tour={`ov-fam-${slug(x.family)}`}
-                    onClick={() => setFam(f => (f === x.family ? "" : x.family))}
+                    onClick={() => { setFam(x.family); setTrendFam(x.family); }}
                     on={sc.scoped && sc.family === x.family}
                     name={x.family}
                     onChart={() => setTrendFam(x.family)}
+                    mark={tileMark(x.family, ver)}
                     badge={versionBadge(ver.byFamily.get(x.family), ver.asOf)}
                     value={`${int(x.orders)} orders`}
                     sub={!toDate ? `no ${refName}` : el ? `${int(shown)} ${refName} · ${g === null ? "—" : `${g >= 0 ? "+" : "-"}${Math.abs(g * 100).toFixed(1)}%`} vs ${refName}` : `${int(shown)} ${refName} for the period · ${pct((x.orders / (shown || 1)) * 100)} reached`}
@@ -802,13 +803,13 @@ export function ExecutiveView({
                 );
               })}
             </div>
-            {trendFam ? <TrendDialog family={trendFam} teamLead={teamLead} versions={ver.byFamily.get(trendFam)} onClose={() => setTrendFam(null)} /> : null}
+            {trendFam ? <TrendDialog family={trendFam} teamLead={teamLead} ver={ver} onClose={() => setTrendFam(null)} /> : null}
             {sc.families.some(x => x.isNew) ? (
               <>
                 <div className="ev-secsub" style={{ margin: "14px 0 8px" }}>New &amp; relaunched: launched or relaunched in the last 60 days (official dates), so no fair baseline yet, no goal or colour. Open the chart for the trend by version.</div>
                 <div className="ev-fams">
                   {sc.families.filter(x => x.isNew).map(x => (
-                    <Kpi key={x.family} tour={`ov-fam-${slug(x.family)}`} onClick={() => setFam(f => (f === x.family ? "" : x.family))} on={sc.scoped && sc.family === x.family} name={x.family} onChart={() => setTrendFam(x.family)} badge={versionBadge(ver.byFamily.get(x.family), ver.asOf)} value={`${int(x.orders)} orders`} sub={x.daysLive !== undefined ? `${x.relaunch ? "relaunched" : "launched"}${x.start ? ` ${shortDate(x.start)}` : ""} · ${x.daysLive} days live` : "new release"} dot="var(--vw-gray-30)" fill="new" />
+                    <Kpi key={x.family} tour={`ov-fam-${slug(x.family)}`} onClick={() => { setFam(x.family); setTrendFam(x.family); }} on={sc.scoped && sc.family === x.family} name={x.family} onChart={() => setTrendFam(x.family)} mark={tileMark(x.family, ver)} badge={versionBadge(ver.byFamily.get(x.family), ver.asOf)} value={`${int(x.orders)} orders`} sub={x.daysLive !== undefined ? `${x.relaunch ? "relaunched" : "launched"}${x.start ? ` ${shortDate(x.start)}` : ""} · ${x.daysLive} days live` : "new release"} dot="var(--vw-gray-30)" fill="new" />
                   ))}
                 </div>
               </>

@@ -183,3 +183,45 @@ export function versionEvents(all: readonly Version[], company: ReadonlyMap<stri
   }
   return out.sort((a, b) => (a.events[0].start < b.events[0].start ? 1 : -1));
 }
+
+export type Health = {
+  base: string;
+  /** behind / ahead = the last 2 scored weeks are both below / above the family's own range over the 13 scored weeks before */
+  status: "behind" | "ahead" | "on-trend";
+  /** orders per 100 company orders, last 2 scored weeks (average) and the range before */
+  recent: number;
+  range: { p25: number; median: number; p75: number; weeks: number };
+  /** recent vs the range's median */
+  vsMedian: number;
+};
+
+/**
+ * Is an established family behind its own trend? Season-free, like a launch: orders per 100 company orders by calendar week; the last 2
+ * scored weeks (complete, no holiday) against the 13 scored weeks before them. Needs 8 scored weeks and 50 orders in the range, so a
+ * family with a handful of orders is not flagged.
+ */
+export function healthOf(base: string, days: readonly Day[], company: ReadonlyMap<string, number>, asOf: string): Health | null {
+  const weeks = launchWeeks(days, company, mondayOf(addDays(asOf, -7 * 17)), asOf);
+  const scored = scoredWeeks(weeks);
+  if (scored.length < 8) return null;
+  const last = scored.slice(-MODEL.runWeeks);
+  const prior = scored.slice(0, -MODEL.runWeeks).slice(-VERSIONS.beforeWeeks);
+  if (prior.reduce((t, w) => t + w.orders, 0) < 50) return null;
+  const own = ownBand(prior, VERSIONS.beforeWeeks, 6);
+  if (!own || !(own.median > 0)) return null;
+  const recent = last.reduce((t, w) => t + w.attach, 0) / last.length;
+  const status = last.every(w => w.attach < own.p25) ? "behind" : last.every(w => w.attach > own.p75) ? "ahead" : "on-trend";
+  return { base, status, recent, range: own, vsMedian: recent / own.median - 1 };
+}
+
+/** healthOf for every base (the cleaned test name = the product family's name) that has enough history. */
+export function healthByBase(all: readonly Version[], company: ReadonlyMap<string, number>, asOf: string): Health[] {
+  const byBase = new Map<string, Version[]>();
+  for (const v of all) byBase.set(v.base, [...(byBase.get(v.base) ?? []), v]);
+  const out: Health[] = [];
+  for (const [base, vs] of byBase) {
+    const h = healthOf(base, baseDays(vs), company, asOf);
+    if (h) out.push(h);
+  }
+  return out;
+}

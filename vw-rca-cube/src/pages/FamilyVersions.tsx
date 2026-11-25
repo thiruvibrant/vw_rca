@@ -17,17 +17,31 @@ export type VersionEvent = {
   read: { before: { p25: number; median: number; p75: number; weeks: number } | null; since: number | null; scored: number; lift: number | null; read: Read };
 };
 export type VersionBase = { base: string; events: VersionEvent[]; weekly: Array<{ week: string; partial: boolean; holiday: boolean; byVersion: Record<string, number> }>; versions: string[] };
-type Summary = { ready: true; asOf: string; bases: VersionBase[] } | { ready: false };
+export type Health = { base: string; status: "behind" | "ahead" | "on-trend"; recent: number; range: { p25: number; median: number; p75: number; weeks: number }; vsMedian: number };
+type Summary = { ready: true; asOf: string; bases: VersionBase[]; health: Health[] } | { ready: false };
+/** The launch tracker's row for a tracked launch (analytics/launchTracker.ts), the parts the status line needs. */
+type LaunchRow = {
+  family: string; launch: string; relaunch: boolean; daysLive: number;
+  status: "too-early" | "ahead" | "on-track" | "behind" | "no-band" | "mature";
+  trend: "rising" | "steady" | "falling" | null;
+  lastScored: { n: number; attach: number; orders: number } | null;
+  band: Array<{ n: number; p25: number; median: number; p75: number } | null>;
+  ownRange: { p25: number; median: number; p75: number; weeks: number } | null;
+  revenue: number; runRate: number | null; potential: number | null; upside: number | null;
+};
+type LaunchSummary = { ready: true; launches: LaunchRow[] } | { ready: false };
 
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const day = (d: string) => `${MON[+d.slice(5, 7) - 1]} ${+d.slice(8, 10)}`;
 const BADGE_DAYS = 120;
 
 /** Version data per family (the cleaned test name is the family's name). Empty until the engine has it. */
-export function useVersions(): { asOf: string; byFamily: Map<string, VersionBase> } {
+export function useVersions(): { asOf: string; byFamily: Map<string, VersionBase>; health: Map<string, Health>; launches: Map<string, LaunchRow> } {
   const res = useRcaQuery(api.productVersions.summary, { password: pw() }) as Summary | undefined;
-  if (!res || !res.ready) return { asOf: "", byFamily: new Map() };
-  return { asOf: res.asOf, byFamily: new Map(res.bases.map(b => [b.base, b])) };
+  const lt = useRcaQuery(api.launchTracker.summary, { password: pw() }) as LaunchSummary | undefined;
+  const launches = new Map<string, LaunchRow>(lt && lt.ready ? lt.launches.map(l => [l.family, l] as [string, LaunchRow]) : []);
+  if (!res || !res.ready) return { asOf: "", byFamily: new Map(), health: new Map(), launches };
+  return { asOf: res.asOf, byFamily: new Map(res.bases.map(b => [b.base, b])), health: new Map(res.health.map(h => [h.base, h])), launches };
 }
 
 const ageDays = (start: string, asOf: string) => Math.round((Date.parse(asOf) - Date.parse(start)) / 864e5);
@@ -148,6 +162,72 @@ export function VersionPanel({ b }: { b: VersionBase }) {
         version. Season-free reading: the family's orders per 100 company orders, holiday weeks not scored, 3 full weeks needed. Recent weeks
         can still rise as late orders post; the faded bar is the open week.
       </div>
+    </div>
+  );
+}
+
+const BLINK_DAYS = 60;
+type V = ReturnType<typeof useVersions>;
+
+/** The marker on a family tile: blinking for a new or relaunched product (last 60 days), "behind trend" for an established family below its own range. */
+export function tileMark(family: string, v: V): "blink" | "behind" | null {
+  const b = v.byFamily.get(family);
+  const fresh = b?.events.some(e => e.kind !== "variant" && ageDays(e.start, v.asOf) <= BLINK_DAYS);
+  const l = v.launches.get(family);
+  if (fresh || (l && l.status !== "mature" && l.daysLive <= BLINK_DAYS)) return "blink";
+  return v.health.get(family)?.status === "behind" ? "behind" : null;
+}
+
+export type Tone = "ahead" | "on" | "behind" | "early";
+const K = (x: number) => (Math.abs(x) >= 1e6 ? `$${(x / 1e6).toFixed(1)}M` : Math.abs(x) >= 1e3 ? `$${(x / 1e3).toFixed(1)}K` : `$${Math.round(x)}`);
+const n2 = (x: number) => x.toFixed(2);
+
+/**
+ * Ahead / on track / behind / too early for a family, and the lines under it. A tracked launch or relaunch uses the launch tracker (against
+ * earlier launches at the same age, or its own range for a relaunch); another recent start uses its own read (versionModel.readOf);
+ * an established family is read against its own last 13 weeks (healthOf). All season-free: orders per 100 company orders.
+ */
+export function familyStatus(family: string, v: V): { tone: Tone; word: string; lines: string[] } | null {
+  const l = v.launches.get(family);
+  if (l && l.status !== "mature" && l.status !== "no-band") {
+    const tone: Tone = l.status === "ahead" ? "ahead" : l.status === "behind" ? "behind" : l.status === "on-track" ? "on" : "early";
+    const word = { ahead: "Ahead", "on-track": "On track", behind: "Behind", "too-early": "Too early to judge" }[l.status as "ahead" | "on-track" | "behind" | "too-early"];
+    const vs = l.relaunch ? "its own range before the relaunch" : "earlier launches at the same age";
+    const lines: string[] = [];
+    if (l.status === "too-early") lines.push(`${l.daysLive} days since ${day(l.launch)}. A rating needs 3 full non-holiday weeks and 30 orders; until then only the weekly pace is shown.`);
+    else if (l.lastScored) {
+      const b = l.relaunch && l.ownRange ? l.ownRange : l.band[l.lastScored.n - 1];
+      lines.push(`Last scored week (week ${l.lastScored.n}): ${n2(l.lastScored.attach)} orders per 100 company orders${b ? ` against ${n2(b.p25)}–${n2(b.p75)} for ${vs}` : ""}${l.trend ? `; ${l.trend} against the 2 weeks before` : ""}.`);
+    }
+    if (l.runRate !== null) lines.push(`${K(l.revenue)} so far, ${K(l.runRate)} a week now${l.potential !== null && l.status !== "too-early" ? (l.upside && l.upside > 0 ? `; a typical launch would reach ${K(l.potential)} a week (${K(l.upside)} of room)` : `; already above a typical launch (${K(l.potential)} a week)`) : ""}.`);
+    return { tone, word, lines };
+  }
+  const b = v.byFamily.get(family);
+  const e = b?.events.find(x => ageDays(x.start, v.asOf) <= 120);
+  if (e) {
+    const r = e.read.read;
+    if (r === "too-early" || r === "no-history") return { tone: "early", word: "Too early to judge", lines: [eventLine(e)] };
+    return { tone: r === "grew" ? "ahead" : r === "fell" ? "behind" : "on", word: r === "grew" ? "Ahead" : r === "fell" ? "Behind" : "On track", lines: [eventLine(e)] };
+  }
+  const h = v.health.get(family);
+  if (!h) return null;
+  return {
+    tone: h.status === "ahead" ? "ahead" : h.status === "behind" ? "behind" : "on",
+    word: h.status === "ahead" ? "Ahead of its trend" : h.status === "behind" ? "Behind its trend" : "On its trend",
+    lines: [`Last 2 full weeks: ${n2(h.recent)} orders per 100 company orders (${pct(h.vsMedian)} vs the median) against its own range of ${n2(h.range.p25)}–${n2(h.range.p75)} over the ${h.range.weeks} weeks before. The season is taken out: holiday weeks are not scored.`],
+  };
+}
+
+const TONE_COLOR: Record<Tone, string> = { ahead: "var(--vw-success)", on: "var(--vw-blue)", behind: "var(--vw-error)", early: "var(--text-tertiary)" };
+
+/** Status pill and its lines, for the top of a family's chart. */
+export function StatusBlock({ family, v }: { family: string; v: V }) {
+  const st = familyStatus(family, v);
+  if (!st) return null;
+  return (
+    <div className="fv-status">
+      <span className="fv-pill" style={{ color: TONE_COLOR[st.tone], borderColor: TONE_COLOR[st.tone] }}>{st.word}</span>
+      <div className="fv-status-t">{st.lines.map((t, i) => <div key={i}>{t}</div>)}</div>
     </div>
   );
 }
