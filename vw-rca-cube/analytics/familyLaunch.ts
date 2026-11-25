@@ -6,6 +6,7 @@ import { loadCfg } from "./config";
 import { ordersRows } from "./cube";
 import { dateOf, familyOf, num, splitFamilies } from "./powerbi";
 import { addDays } from "./dateUtils";
+import { LAUNCHES } from "./launchModel";
 
 /**
  * New product releases (Shyam, 2026-10-16). A product family is "new" when its first order is recent: the
@@ -14,6 +15,9 @@ import { addDays } from "./dateUtils";
  *   - first order within the last NEW_WITHIN_DAYS of the data end, and
  *   - not at the very start of the data (DATA_START + buffer): those families only look new because the
  *     history we pull begins there.
+ * The official launch dates in analytics/launchModel.ts LAUNCHES override the first order (2026-11-25): a system issue put a stray Gut
+ * Baseline order on Sep 17, and Nutrient Baseline was relaunched with added markers on Nov 9, so it counts as a release from that date
+ * (`relaunch: true`: its old baseline is a different test).
  */
 export const DATA_START = "2025-01-01";
 export const NEW_WITHIN_DAYS = 60; // "last 2 months"
@@ -59,7 +63,7 @@ export const launches = scopedQuery({
   handler: async ctx => {
     const cfg = await loadCfg(ctx);
     const rows = await ctx.db.query("familyLaunch").collect();
-    if (!cfg || !rows.length) return { ready: false as const, newWithinDays: NEW_WITHIN_DAYS, launches: [] as Array<{ family: string; firstOrder: string; daysLive: number; isNew: boolean }> };
+    if (!cfg || !rows.length) return { ready: false as const, newWithinDays: NEW_WITHIN_DAYS, launches: [] as Array<{ family: string; firstOrder: string; daysLive: number; isNew: boolean; relaunch: boolean }> };
     const asOf = cfg.currentEnd;
     const newSince = addDays(asOf, -NEW_WITHIN_DAYS);
     const atStart = addDays(DATA_START, LEFT_CENSOR_BUFFER_DAYS);
@@ -67,12 +71,17 @@ export const launches = scopedQuery({
     return {
       ready: true as const,
       newWithinDays: NEW_WITHIN_DAYS,
-      launches: rows.map(r => ({
-        family: r.family,
-        firstOrder: r.firstOrder,
-        daysLive: days(r.firstOrder, asOf) + 1,
-        isNew: r.firstOrder >= newSince && r.firstOrder > atStart && r.family !== "Unmapped",
-      })),
+      launches: rows.map(r => {
+        const off = LAUNCHES.find(l => l.family === r.family && l.date);
+        const start = off?.date ?? r.firstOrder;
+        return {
+          family: r.family,
+          firstOrder: start,
+          daysLive: days(start, asOf) + 1,
+          isNew: start >= newSince && (off ? true : start > atStart) && r.family !== "Unmapped",
+          relaunch: off?.kind === "relaunch",
+        };
+      }),
     };
   },
 });

@@ -13,6 +13,7 @@ type Wk = { n: number; start: string; complete: boolean; holiday: boolean; order
 type Band = { n: number; p25: number; median: number; p75: number } | null;
 type Launch = {
   family: string; parent: string; launch: string; fromLeadership: boolean; daysLive: number; orders: number;
+  relaunch: boolean; firstLaunch: string | null; ownRange: { p25: number; median: number; p75: number; weeks: number } | null; preOrders: number;
   status: "too-early" | "ahead" | "on-track" | "behind" | "no-band" | "mature";
   trend: "rising" | "steady" | "falling" | null; trendRatio: number | null;
   weeks: Wk[]; band: Band[];
@@ -79,7 +80,7 @@ function Card({ l }: { l: Launch }) {
         <div>
           <div className="lt-name">{l.family}</div>
           <div className="lt-sub">
-            Week {Math.ceil(l.daysLive / 7)} · from {day(l.launch)}{l.fromLeadership ? "" : " (first week of orders: confirm with leadership)"}
+            Week {Math.ceil(l.daysLive / 7)} · {l.relaunch ? `relaunched ${day(l.launch)} with added markers (first launched ${l.firstLaunch ? day(l.firstLaunch) : "earlier"})` : `from ${day(l.launch)}`}{l.fromLeadership ? "" : " (first week of orders: confirm with leadership)"}
           </div>
         </div>
         <div className="lt-chips">
@@ -96,7 +97,7 @@ function Card({ l }: { l: Launch }) {
         ) : l.lastScored ? (
           <li>
             Last scored week (week {l.lastScored.n}): <b>{num2(l.lastScored.attach)}</b> orders per 100 company orders
-            {band ? <> against <b>{num2(band.p25)}–{num2(band.p75)}</b> for earlier launches at that age</> : null}
+            {band ? <> against <b>{num2(band.p25)}–{num2(band.p75)}</b> {l.relaunch ? <>for its own last {l.ownRange?.weeks} weeks before the relaunch</> : <>for earlier launches at that age</>}</> : null}
             {l.trend ? <> · <b className={`lt-${l.trend}`}>{l.trend === "rising" ? "▲ rising" : l.trend === "falling" ? "▼ falling" : "steady"}</b> vs the 2 weeks before</> : null}
           </li>
         ) : null}
@@ -106,6 +107,8 @@ function Card({ l }: { l: Launch }) {
             l.upside && l.upside > 0 ? <> · a typical launch would reach {K(l.potential)} a week (<b>+{K(l.upside)}</b> room)</> : <> · already above a typical launch ({K(l.potential)} a week)</>
           ) : null}
         </li>
+        {l.preOrders > 0 ? <li>{l.preOrders} order{l.preOrders === 1 ? "" : "s"} dated before the launch {l.preOrders === 1 ? "is" : "are"} ignored (placed before the official launch).</li> : null}
+        {l.relaunch && l.ownRange && !early ? <li>Before the relaunch: {num2(l.ownRange.median)} per 100 company orders (middle half {num2(l.ownRange.p25)}–{num2(l.ownRange.p75)}).</li> : null}
         {l.tried !== null ? (
           <li>
             {l.tried} clinics tried it{l.eligible ? <> of {l.eligible.toLocaleString("en-US")} that ordered {l.parent} last year ({Math.round((l.tried / l.eligible) * 1000) / 10}%)</> : null}
@@ -147,7 +150,7 @@ export function LaunchTracker() {
           </p>
           <div className="lt-grid">{res.launches.map(l => <Card key={l.family} l={l} />)}</div>
           <p className="lt-note">
-            Earlier launches used: {res.references.map(r => `${r.family} (${day(r.launch)})`).join(", ")}. Orders are the dashboard's family orders (an order with several
+            Earlier launches used (a relaunch is compared with its own range instead): {res.references.map(r => `${r.family} (${day(r.launch)})`).join(", ")}. Orders are the dashboard's family orders (an order with several
             families counts in each, so products sold together lift each other); dollars split each order across its families. A launch needs 3 full non-holiday weeks and 30 orders
             before it is rated, and is rated on its last 2 of them. Normal company volume is about {Math.round(res.normalCompanyWeek).toLocaleString("en-US")} orders a
             week. The launch date is the first week with orders until leadership confirms it. Data through {res.asOf}.

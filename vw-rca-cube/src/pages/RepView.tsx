@@ -2644,7 +2644,7 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, startFam, sales, peri
             <>
               <div className="rv-famgroup">
                 <b>New product releases</b>
-                <span>First order within the last {Math.round((launchQ?.newWithinDays ?? 60) / 30)} months, so there is no fair baseline: no expected orders, no on-track / behind colour. Shown with how long each has been live.</span>
+                <span>Launched or relaunched within the last {Math.round((launchQ?.newWithinDays ?? 60) / 30)} months (official launch dates, not the first order in the data), so there is no fair baseline: no expected orders, no on-track / behind colour. Shown with how long each has been live. A relaunch is a changed test, so its old baseline does not apply.</span>
               </div>
               <div className="rv-famcards rv-famcards-new">
                 {famCards.filter(f => isNewFam(f.family)).map(f => {
@@ -2653,7 +2653,7 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, startFam, sales, peri
                     <button type="button" key={f.family} data-tour={`rv-fam-${tourSlug(f.family)}`} className={`rv-famcard new${f.family === family ? " on" : ""}`} onClick={() => setWsFam(f.family)}>
                       <span>{f.family}</span>
                       <b>{f.orders.toFixed(0)} orders</b>
-                      <em>launched {l?.firstOrder} · {l?.daysLive}d live</em>
+                      <em>{l?.relaunch ? "relaunched" : "launched"} {l?.firstOrder} · {l?.daysLive}d live</em>
                     </button>
                   );
                 })}

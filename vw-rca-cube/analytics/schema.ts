@@ -708,6 +708,10 @@ const schema = defineSchema({
     parent: v.optional(v.string()),
     launch: v.optional(v.string()),
     leadership: v.optional(v.boolean()),
+    // relaunch: the first launch date (weeks of its history), orders dated before the official launch date (ignored)
+    relaunch: v.optional(v.boolean()),
+    firstDate: v.optional(v.string()),
+    preOrders: v.optional(v.number()),
     days: v.array(v.object({ d: v.string(), o: v.number(), r: v.number() })),
     tried: v.optional(v.number()),
     hadParent: v.optional(v.number()),

@@ -11,7 +11,7 @@ import { loadCfg } from "./config";
 import { O, ordersRows } from "./cube";
 import { addDays } from "./dateUtils";
 import { scopedQuery } from "./gated";
-import { dollarsOf, launchDateOf, launchWeeks, LAUNCHES, normalCompanyWeek, REFERENCES, referenceBand, scoredWeeks, statusOf, trendOf, type Day } from "./launchModel";
+import { dollarsOf, flatBand, launchDateOf, launchWeeks, LAUNCHES, normalCompanyWeek, ownBand, REFERENCES, referenceBand, scoredWeeks, statusOf, trendOf, type Day } from "./launchModel";
 import { dateOf, familyOf, num, splitFamilies, TABLE } from "./powerbi";
 
 const START = "2025-01-01";
@@ -43,7 +43,7 @@ export const build = internalAction({
         byFam.set(f, m);
       }
     }
-    const rows: Array<{ family: string; kind: string; parent?: string; launch?: string; leadership?: boolean; days: Day[]; tried?: number; hadParent?: number; eligible?: number }> = [];
+    const rows: Array<{ family: string; kind: string; parent?: string; launch?: string; leadership?: boolean; relaunch?: boolean; firstDate?: string; preOrders?: number; days: Day[]; tried?: number; hadParent?: number; eligible?: number }> = [];
     const coDays = new Map<string, number>();
     for (const r of co) {
       const d = dateOf(r, "order_date");
@@ -57,7 +57,11 @@ export const build = internalAction({
     }
     for (const l of LAUNCHES) {
       const days = [...(byFam.get(l.family)?.values() ?? [])].sort((a, b) => (a.d < b.d ? -1 : 1));
-      const launch = l.date ?? launchDateOf(days) ?? undefined;
+      const firstAuto = launchDateOf(days) ?? undefined;
+      const launch = l.date ?? firstAuto;
+      const relaunch = l.kind === "relaunch";
+      // Orders dated before the official launch date (a system issue put a few in) are left out of the launch weeks; counted for the note.
+      const preOrders = !relaunch && launch ? Math.round(days.filter(x => x.d < launch).reduce((t, x) => t + x.o, 0)) : undefined;
       let tried: number | undefined, hadParent: number | undefined, eligible: number | undefined;
       if (launch) {
         // Clinics that tried it, and the clinics that ordered the parent Zoomer in the 12 months before the launch (the eligible pool).
@@ -72,7 +76,7 @@ export const build = internalAction({
         eligible = pool.size;
         hadParent = [...tr].filter(c => pool.has(c)).length;
       }
-      rows.push({ family: l.family, kind: "launch", parent: l.parent, launch, leadership: !!l.date, days: days.map(x => ({ ...x, r: Math.round(x.r) })), tried, hadParent, eligible });
+      rows.push({ family: l.family, kind: "launch", parent: l.parent, launch, leadership: !!l.date, relaunch, firstDate: relaunch ? firstAuto : undefined, preOrders, days: days.map(x => ({ ...x, r: Math.round(x.r) })), tried, hadParent, eligible });
     }
     await ctx.runMutation(internal.launchTracker.put, { rows });
     return { families: rows.length - 1 };
@@ -88,6 +92,9 @@ export const put = internalMutation({
         parent: v.optional(v.string()),
         launch: v.optional(v.string()),
         leadership: v.optional(v.boolean()),
+        relaunch: v.optional(v.boolean()),
+        firstDate: v.optional(v.string()),
+        preOrders: v.optional(v.number()),
         days: v.array(v.object({ d: v.string(), o: v.number(), r: v.number() })),
         tried: v.optional(v.number()),
         hadParent: v.optional(v.number()),
@@ -112,14 +119,18 @@ export const summary = scopedQuery({
     const company = new Map(co.days.map(x => [x.d, x.o]));
     const normal = normalCompanyWeek(company, asOf);
     const weeksOf = (r: (typeof rows)[number]) => (r.launch ? launchWeeks(r.days, company, r.launch, asOf) : []);
-    const refWeeks = new Map(rows.filter(r => r.kind !== "company" && REFERENCES.includes(r.family)).map(r => [r.family, weeksOf(r)]));
+    // A relaunched product is a reference from its first launch, not from the relaunch.
+    const refWeeksOf = (r: (typeof rows)[number]) => { const s = r.relaunch ? r.firstDate : r.launch; return s ? launchWeeks(r.days, company, s, asOf) : []; };
+    const refWeeks = new Map(rows.filter(r => r.kind !== "company" && REFERENCES.includes(r.family)).map(r => [r.family, refWeeksOf(r)]));
     const maxWeek = 14;
     const launches = rows
       .filter(r => r.kind === "launch" && r.launch)
       .map(r => {
         const weeks = weeksOf(r);
         // The other references only: a launch is never its own yardstick.
-        const band = referenceBand([...refWeeks].filter(([f]) => f !== r.family).map(([, w]) => w), maxWeek);
+        // A relaunch is judged against its own range before the relaunch; a launch against earlier launches at the same age.
+        const own = r.relaunch && r.firstDate ? ownBand(launchWeeks(r.days, company, r.firstDate, addDays(r.launch!, -1))) : null;
+        const band = r.relaunch ? flatBand(own, maxWeek) : referenceBand([...refWeeks].filter(([f]) => f !== r.family).map(([, w]) => w), maxWeek);
         const status = statusOf(weeks, band, asOf, r.launch!);
         const tr = trendOf(weeks);
         const d = dollarsOf(weeks, band, normal);
@@ -129,6 +140,10 @@ export const summary = scopedQuery({
           parent: r.parent ?? "",
           launch: r.launch!,
           fromLeadership: !!r.leadership,
+          relaunch: !!r.relaunch,
+          firstLaunch: r.relaunch ? r.firstDate ?? null : null,
+          ownRange: own ? { p25: own.p25, median: own.median, p75: own.p75, weeks: own.weeks } : null,
+          preOrders: r.preOrders ?? 0,
           daysLive: Math.round((Date.parse(asOf) - Date.parse(r.launch!)) / 864e5) + 1,
           orders: weeks.reduce((t, w) => t + w.orders, 0),
           status,
