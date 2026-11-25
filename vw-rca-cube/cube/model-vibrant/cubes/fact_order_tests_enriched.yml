@@ -10,6 +10,9 @@ cubes:
       - { name: sample_id, sql: sample_id, type: number }
       - { name: test_id, sql: test_id, type: number }
       - { name: test_name, sql: test_name_v2, type: string }
+      # Raw test name, version and variant kept ("Nutrient Baseline 2.0", "Foundation Baseline Male"); test_name and product_family
+      # strip them. For new launches, relaunches and variants (analytics/productVersions.ts, 2026-11-25).
+      - { name: test_version, sql: test_name, type: string }
       - { name: bundle_name, sql: bundle_name, type: string }
       - { name: product_family, sql: product_family, type: string }
       - { name: test_type, sql: test_type_v2, type: string }
@@ -25,6 +28,15 @@ cubes:
         type: rollup
         measures: [order_tests.orders, rfm_orders.revenue]
         dimensions: [order_tests.product_family, order_tests.test_name, order_tests.is_bundle, rfm_orders.clinic_id, rfm_orders.sales_id]
+        time_dimension: rfm_orders.order_date
+        granularity: day
+        partition_granularity: month
+        refresh_key: { every: "0 12 * * *", timezone: UTC, incremental: true, update_window: 4000 day }
+      # Orders by test version by day (2026-11-25): small (a few hundred names), read once a day by analytics/productVersions.ts.
+      - name: version_daily
+        type: rollup
+        measures: [order_tests.orders]
+        dimensions: [order_tests.test_version, order_tests.test_name]
         time_dimension: rfm_orders.order_date
         granularity: day
         partition_granularity: month

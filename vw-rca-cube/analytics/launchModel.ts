@@ -15,16 +15,40 @@ import { addDays, diffDays } from "./dateUtils";
 import { HOLIDAYS } from "./goalCurve";
 
 export type Day = { d: string; o: number; r: number };
-export type LaunchDef = { family: string; parent: string; /** Official launch date from leadership; absent = worked out from the orders. */ date?: string };
+export type LaunchKind = "launch" | "relaunch";
+export type LaunchDef = {
+  family: string;
+  parent: string;
+  /** Official launch date from leadership; absent = worked out from the orders. Orders dated earlier (a system issue put a few in) are ignored. */
+  date?: string;
+  /** relaunch: an existing product changed (e.g. markers added). It keeps its own history, so it is judged against its own range before `date`, not against earlier launches. */
+  kind?: LaunchKind;
+};
 
 /** The Baselines being tracked, with the Zoomer each one is a lighter version of. Leadership dates go in `date` once confirmed. */
 export const LAUNCHES: LaunchDef[] = [
-  { family: "Nutrient Baseline", parent: "Nutrient Zoomer" },
-  { family: "Foundation Baseline", parent: "Foundation Zoomer" },
-  { family: "Gut Baseline", parent: "Gut Zoomer", date: "2026-11-09" }, // launch date confirmed by Thiru, 2026-11-24
-  { family: "Hormone Baseline", parent: "Hormone Zoomer" },
-  { family: "Cardio Baseline", parent: "Cardio Zoomer" },
+  // Official dates from Thiru, 2026-11-25. Nutrient Baseline first launched Feb 2; "Nutrient Baseline 2.0" (added markers) replaced it on Nov 9.
+  { family: "Nutrient Baseline", parent: "Nutrient Zoomer", date: "2026-11-09", kind: "relaunch" },
+  { family: "Foundation Baseline", parent: "Foundation Zoomer", date: "2026-09-28" },
+  { family: "Gut Baseline", parent: "Gut Zoomer", date: "2026-11-09" }, // one stray order on Sep 17 (system issue) is ignored
+  { family: "Hormone Baseline", parent: "Hormone Zoomer", date: "2026-11-09" },
+  { family: "Cardio Baseline", parent: "Cardio Zoomer", date: "2026-11-16" },
+  { family: "Gut Zoomer NY", parent: "Gut Zoomer", date: "2026-08-24" }, // "Gut Zoomer New York"; a trickle of orders from Jun 2 is ignored
 ];
+
+/**
+ * Official start dates per test version (the raw `test_name`, which keeps version numbers and variants; the product family strips
+ * them). They override the date read from the orders (analytics/versionModel.ts). Thiru, 2026-11-25.
+ */
+export const VERSION_DATES: Record<string, string> = {
+  "Nutrient Baseline": "2026-02-02",
+  "Nutrient Baseline 2.0": "2026-11-09",
+  "Foundation Baseline": "2026-09-28",
+  "Gut Baseline": "2026-11-09",
+  "Hormone Baseline": "2026-11-09",
+  "Cardio Baseline": "2026-11-16",
+  "Gut Zoomer New York": "2026-08-24",
+};
 /** Earlier launches that set the band. A tracked launch is also a reference for the others once it has weeks of its own. */
 export const REFERENCES = ["Cardio Zoomer", "Food Zoomer", "Nutrient Baseline", "Foundation Baseline"];
 
@@ -185,3 +209,17 @@ export function normalCompanyWeek(company: ReadonlyMap<string, number>, asOf: st
   }
   return out.length ? percentile(out, 0.5) : 0;
 }
+
+/**
+ * A relaunch (an existing product changed) already has history, so it gets a baseline of its own: the range of its attach rate over its
+ * last `weeks` scored weeks before the relaunch (needs `minWeeks`). `before` = weeks from its first launch up to the day before the relaunch.
+ */
+export function ownBand(before: readonly Week[], weeks = 13, minWeeks = 6): { p25: number; median: number; p75: number; weeks: number } | null {
+  const xs = scoredWeeks(before).slice(-weeks).map(w => w.attach);
+  if (xs.length < minWeeks) return null;
+  return { p25: percentile(xs, 0.25), median: percentile(xs, 0.5), p75: percentile(xs, 0.75), weeks: xs.length };
+}
+
+/** The same own range at every launch age, so statusOf and dollarsOf can read it like a reference band. */
+export const flatBand = (b: { p25: number; median: number; p75: number } | null, maxWeek: number): Array<Band | null> =>
+  Array.from({ length: maxWeek }, (_, i) => (b ? { n: i + 1, p25: b.p25, median: b.median, p75: b.p75, refs: 0 } : null));

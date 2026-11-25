@@ -13,6 +13,7 @@ import type * as clinicalTouch from "../clinicalTouch.js";
 import type * as clinics from "../clinics.js";
 import type * as cohortFlow from "../cohortFlow.js";
 import type * as launchTracker from "../launchTracker.js";
+import type * as productVersions from "../productVersions.js";
 import type * as config from "../config.js";
 import type * as cube from "../cube.js";
 import type * as dateUtils from "../dateUtils.js";
@@ -60,6 +61,7 @@ declare const fullApi: ApiFromModules<{
   clinics: typeof clinics;
   cohortFlow: typeof cohortFlow;
   launchTracker: typeof launchTracker;
+  productVersions: typeof productVersions;
   config: typeof config;
   cube: typeof cube;
   dateUtils: typeof dateUtils;

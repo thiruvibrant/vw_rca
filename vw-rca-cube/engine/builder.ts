@@ -73,7 +73,7 @@ export async function buildSnapshot(
   if (mode !== "daily" && liveDir && fs.existsSync(path.join(liveDir, "config"))) {
     db.load("config", loadExport(liveDir, ["config"]).dump().config.filter(r => r.key === "main"));
   }
-  const host = new Host(db, ["ingest", "config", "insights", "refresh", "familyLaunch", "familyStops", "gzLapsed", "families", "fzScores", "momentum", "launchTracker"], ["query", "mutation", "action"]);
+  const host = new Host(db, ["ingest", "config", "insights", "refresh", "familyLaunch", "familyStops", "gzLapsed", "families", "fzScores", "momentum", "launchTracker", "productVersions"], ["query", "mutation", "action"]);
   await host.ready;
   const t0 = Date.now();
   if (mode === "daily") {
@@ -99,6 +99,13 @@ export async function buildSnapshot(
       console.log("launch tracker:", JSON.stringify(await host.invoke("launchTracker:build", { end: (result as { dataThrough?: string } | null)?.dataThrough })));
     } catch (e) {
       console.error("launch tracker failed:", String(e).slice(0, 200));
+    }
+    // New launches, relaunches and variants by test version (analytics/productVersions.ts). Best effort: needs the Cube dimension
+    // order_tests.test_version; without it the version badges and chart are hidden.
+    try {
+      console.log("product versions:", JSON.stringify(await host.invoke("productVersions:build", { end: (result as { dataThrough?: string } | null)?.dataThrough })));
+    } catch (e) {
+      console.error("product versions failed:", String(e).slice(0, 200));
     }
     // Gut Zoomer / Total Tox stopped clinics. refresh.ts schedules this, but the engine's scheduler does nothing, so it is run here.
     try {

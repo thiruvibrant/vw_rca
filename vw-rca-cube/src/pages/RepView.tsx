@@ -10,6 +10,7 @@ import { Logo } from "@/components/Logo";
 import { ScorecardGuide, guideIdFor, guideNav, openGuide } from "./ScorecardGuide";
 import { CohortFlow } from "./CohortFlow";
 import { LaunchTracker } from "./LaunchTracker";
+import { useVersions, VersionPanel, versionBadge } from "./FamilyVersions";
 import { useMutation, useQuery } from "convex/react";
 import { useRcaQuery, useRcaAction } from "@/lib/rca";
 import React, { Fragment, startTransition, useEffect, useMemo, useState, useRef, useSyncExternalStore } from "react";
@@ -2464,6 +2465,8 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, startFam, sales, peri
   const launchOf = useMemo(() => new Map((launchQ?.launches ?? []).map(l => [l.family, l])), [launchQ]);
   const isNewFam = (f: string) => launchOf.get(f)?.isNew === true;
   const famLaunch = scoped && isNewFam(family) ? launchOf.get(family) : undefined;
+  // New versions, relaunches and new tests inside each family (analytics/productVersions.ts).
+  const ver = useVersions();
   const rows0 = pgFailedRows(scoreRows(b, fams, pg, scoped ? { family, clinics: pgd.data?.clinics ?? null, launch: famLaunch } : undefined, tenureSel, fz), pgd);
   // This year's signups have no baseline (new clinics carry none), so Revenue Retention / NRR / Expansion / At-risk have
   // nothing to compare with; for that cut retention is the share of new clinics still ordering (2026-10-18).
@@ -2636,6 +2639,7 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, startFam, sales, peri
                   <span>{f.family}</span>
                   <b>{f.orders.toFixed(0)} orders</b>
                   <em>{f.expectedOrders.toFixed(0)} exp · {g === null ? "—" : SP(g)} vs exp</em>
+                  {versionBadge(ver.byFamily.get(f.family), ver.asOf) ? <em className="fv-badge">{versionBadge(ver.byFamily.get(f.family), ver.asOf)}</em> : null}
                 </button>
               );
             })}
@@ -2643,8 +2647,8 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, startFam, sales, peri
           {famCards.some(f => isNewFam(f.family)) ? (
             <>
               <div className="rv-famgroup">
-                <b>New product releases</b>
-                <span>First order within the last {Math.round((launchQ?.newWithinDays ?? 60) / 30)} months, so there is no fair baseline: no expected orders, no on-track / behind colour. Shown with how long each has been live.</span>
+                <b>New &amp; relaunched</b>
+                <span>Launched or relaunched within the last {Math.round((launchQ?.newWithinDays ?? 60) / 30)} months (official launch dates, not the first order in the data), so there is no fair baseline: no expected orders, no on-track / behind colour. Shown with how long each has been live. A relaunch is a changed test, so its old baseline does not apply.</span>
               </div>
               <div className="rv-famcards rv-famcards-new">
                 {famCards.filter(f => isNewFam(f.family)).map(f => {
@@ -2653,13 +2657,15 @@ function ScorecardTab({ b: bAll, fams, periodLabel, focus, startFam, sales, peri
                     <button type="button" key={f.family} data-tour={`rv-fam-${tourSlug(f.family)}`} className={`rv-famcard new${f.family === family ? " on" : ""}`} onClick={() => setWsFam(f.family)}>
                       <span>{f.family}</span>
                       <b>{f.orders.toFixed(0)} orders</b>
-                      <em>launched {l?.firstOrder} · {l?.daysLive}d live</em>
+                      <em>{l?.relaunch ? "relaunched" : "launched"} {l?.firstOrder} · {l?.daysLive}d live</em>
+                      {versionBadge(ver.byFamily.get(f.family), ver.asOf) ? <em className="fv-badge">{versionBadge(ver.byFamily.get(f.family), ver.asOf)}</em> : null}
                     </button>
                   );
                 })}
               </div>
             </>
           ) : null}
+          {scoped && ver.byFamily.get(family) ? <VersionPanel b={ver.byFamily.get(family)!} /> : null}
         </>
       ) : null}
       <div className="rv-tenure">
@@ -5595,7 +5601,7 @@ export type ExecScorecard = {
   /** Share of ordering clinics that ordered 2+ times. */
   repeat: { rate: number | null; n: number; of: number } | null;
   /** Product families for the window, with launch info for new releases. */
-  families: Array<{ family: string; orders: number; expectedOrders: number; baselineOrders: number; isNew: boolean; daysLive?: number }>;
+  families: Array<{ family: string; orders: number; expectedOrders: number; baselineOrders: number; isNew: boolean; daysLive?: number; relaunch?: boolean; start?: string }>;
   /** Days of the book and the overall AOV against the goal's and the baseline's, whichever family the dials follow. */
   days: number;
   aov: { cur: number | null; goal: number; base: number | null };
@@ -5707,7 +5713,7 @@ export function useExecScorecard(sales: string, periodId: string | undefined, fa
     const viewRows = rows.map(r => ({ ...r, cells: r.cells.map(viewCell) }));
     const families = ((fams?.all ?? []) as Fam[])
       .filter(f => f.family !== "Unmapped" && f.family !== NON_ZOOMER)
-      .map(f => ({ family: f.family, orders: f.orders, expectedOrders: f.expectedOrders, baselineOrders: f.baselineOrders ?? 0, isNew: launchOf.get(f.family)?.isNew === true, daysLive: launchOf.get(f.family)?.daysLive }));
+      .map(f => ({ family: f.family, orders: f.orders, expectedOrders: f.expectedOrders, baselineOrders: f.baselineOrders ?? 0, isNew: launchOf.get(f.family)?.isNew === true, daysLive: launchOf.get(f.family)?.daysLive, relaunch: launchOf.get(f.family)?.relaunch === true, start: launchOf.get(f.family)?.firstOrder }));
     return {
       ready: true as const,
       rows: viewRows,

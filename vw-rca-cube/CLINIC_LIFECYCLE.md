@@ -297,3 +297,38 @@ Proposal with the data behind it: "Proposal: one definition of Top 20% clinics" 
 - **Needs leadership:** launch date, eligible clinics (parent Zoomer buyers in the 12 months before), a week-13 goal, replacement of the parent.
 - **Caveat:** an order with several families counts in each; the dashboard's family orders are higher than BigQuery sample counts
   (Foundation Baseline week 7: 51 vs 20), so compare on the dashboard's definition only.
+
+## 25. Official launch dates and relaunches (2026-11-25, Thiru's dev branch)
+- **One registry:** `LAUNCHES` in `analytics/launchModel.ts` holds each product's official launch date. It drives both the report's "New
+  product releases" flag (`familyLaunch.launches`: `firstOrder` becomes the official date, `isNew` = within 60 days) and the launch tracker.
+  The data's first order is no longer used for those families (a system issue put a stray Gut Baseline order on Sep 17; Gut Baseline counts
+  from Nov 9 and that order is ignored and noted on its card).
+- **Relaunch** (`kind: "relaunch"`): an existing product whose test changed (Nutrient Baseline, added markers, Nov 9). It counts as a
+  release from the relaunch date (no expected-orders colour: the old baseline is a different test) and the tracker judges it against its
+  own range (p25 / median / p75 of attach rate over its last 13 scored weeks before the relaunch, 6+ needed), not earlier launches. It stays
+  a reference for other launches from its first launch date.
+- **Adding a launch or relaunch:** one line in `LAUNCHES` (family, parent Zoomer, date, kind). Rebuild the engine.
+- **Orders post late:** recent weeks can be revised up as orders post (Gut Baseline's first week went from 24 to 31 orders between Nov 23 and Nov 24).
+
+## 26. Test versions: new launches, relaunches and variants (2026-11-25, Thiru's dev branch)
+- **What the product family strips:** `product_family` (the order's family list) is built from the cleaned test name `test_name_v2`, which
+  drops version numbers ("Nutrient Baseline 2.0" → Nutrient Baseline, "Foundation Zoomer 2.0" → Foundation Zoomer), variants ("Foundation
+  Baseline Male" → Foundation Baseline) and some formatting ("Food Zoomer (DBS)" → Food Zoomer DBS, "Gut Zoomer New York" → Gut Zoomer NY).
+  Family totals are right (BigQuery, 2026-11-25: 100% of the orders holding a versioned or variant test carry its family), but they cannot
+  show which version sold. Gut Zoomer NY, Food Zoomer DBS and Food Bundle DBS are families of their own, not part of Gut / Food Zoomer.
+- **Raw name in Cube:** `order_tests.test_version` (= raw `test_name`) and rollup `version_daily` (orders by test_version, test_name, day).
+  The engine step `productVersions:build` reads it; until the Cube change is deployed the step fails and the screens hide the version view.
+- **Start of a version:** the official date (`VERSION_DATES` in `analytics/launchModel.ts`), else the first day whose 7 days hold 3+ orders
+  (stray earlier orders: Gut Zoomer NY Jun 2, Foundation Zoomer 2.0 May 6, Gut Baseline Sep 17). Dates read from the orders say "confirm".
+- **Kind** (`analytics/versionModel.ts`): **new** = nothing else in the family sold in the 4 weeks before; **relaunch** = the earlier
+  version fell below a quarter of its previous 4 weeks (it was replaced); **variant** = the earlier version kept selling. Only starts in the
+  last 180 days with 10+ orders count.
+- **Read:** the family's orders per 100 company orders since the start, against its own range over the 13 scored weeks before (never back
+  past the family's own first start); 3 full non-holiday weeks needed, then grew / flat / fell on the last 2. A variant that only splits
+  existing orders reads flat.
+- **On screen:** a badge on the family tile ("2.0 relaunched Nov 9", "+ Male version Nov 9", "new Aug 24", last 120 days); the trend chart
+  (overview) and the scoped family (rep view) show weekly orders stacked by version with a marker at each start and one line per start.
+  The overview's new-releases group is now "New & relaunched".
+- **This year (BigQuery, data through Nov 24):** Nutrient Baseline 2.0 relaunch Nov 9 (old version ~21 a week, then 49 and 32: +104% on
+  attach so far, too early to rate); Foundation Zoomer 2.0 relaunch Sep 28 (a clean swap, flat, +7%); Foundation Zoomer Male and Foundation
+  Baseline Male variants Nov 9 (Foundation Zoomer total flat: Male took 35% of its orders); Gut Zoomer New York new Aug 24 (~20 a week).

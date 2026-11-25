@@ -708,11 +708,23 @@ const schema = defineSchema({
     parent: v.optional(v.string()),
     launch: v.optional(v.string()),
     leadership: v.optional(v.boolean()),
+    // relaunch: the first launch date (weeks of its history), orders dated before the official launch date (ignored)
+    relaunch: v.optional(v.boolean()),
+    firstDate: v.optional(v.string()),
+    preOrders: v.optional(v.number()),
     days: v.array(v.object({ d: v.string(), o: v.number(), r: v.number() })),
     tried: v.optional(v.number()),
     hadParent: v.optional(v.number()),
     eligible: v.optional(v.number()),
   }).index("by_family", ["family"]),
+
+  // Orders by test version (raw test_name, which keeps "2.0" and "Male") and its cleaned name (= the family), by day, for new launches,
+  // relaunches and variants (2026-11-25, analytics/productVersions.ts). name "__company" holds the company's daily orders.
+  productVersions: defineTable({
+    name: v.string(),
+    base: v.string(),
+    days: v.array(v.object({ d: v.string(), o: v.number() })),
+  }).index("by_base", ["base"]),
 
   // Clinics still ordering a family but below what their baseline expects, or flagged DECLINING (same rule as the scorecard's
   // product lists), rebuilt with familyStops after each refresh (analytics/familyStops.ts).
